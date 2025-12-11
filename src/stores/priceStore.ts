@@ -44,6 +44,7 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   addPricePoint: (point: PricePoint) => {
     const { priceHistory, currentPrice } = get()
     
+    // Store actual price data without modification
     const newHistory = [...priceHistory, point].slice(-MAX_HISTORY_POINTS)
     
     set({

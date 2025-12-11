@@ -119,13 +119,15 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
         )}
         
         <Line
-          type="monotone"
+          type="natural"
           dataKey="price"
           stroke={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
           strokeWidth={2}
           dot={false}
           activeDot={false}
-          isAnimationActive={false}
+          isAnimationActive={true}
+          animationDuration={100}
+          animationEasing="ease-out"
         />
       </LineChart>
     </ResponsiveContainer>
@@ -209,18 +211,18 @@ export function PriceChart() {
   
   return (
     <div className="relative w-full h-full flex flex-col">
-      {/* Price display */}
+      {/* Price display with smooth transitions - shows REAL price */}
       <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-baseline gap-2">
-          <span className="text-2xl md:text-3xl font-mono font-bold text-text-primary">
+          <span className="text-2xl md:text-3xl font-mono font-bold text-text-primary transition-all duration-150">
             ${formatPrice(currentPrice)}
           </span>
           <span className="text-xs text-text-secondary">SOL/USD</span>
         </div>
-        <div className={`flex items-center gap-1 text-lg font-mono font-semibold ${
+        <div className={`flex items-center gap-1 text-lg font-mono font-semibold transition-colors duration-200 ${
           isUp ? 'text-accent-up' : 'text-accent-down'
         }`}>
-          <span>{isUp ? '▲' : '▼'}</span>
+          <span className="transition-transform duration-150">{isUp ? '▲' : '▼'}</span>
           <span>{formatPercentage(percentChange)}</span>
         </div>
       </div>
