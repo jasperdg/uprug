@@ -20,6 +20,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   chartData,
   minPrice,
   maxPrice,
+  xDomain,
   isUp,
   referencePrice,
   resolvedMarker,
@@ -28,9 +29,10 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   lastDataIndex,
   lastPrice,
 }: {
-  chartData: Array<{ index: number; price: number | null }>
+  chartData: Array<{ index: number; price: number }>
   minPrice: number
   maxPrice: number
+  xDomain: [number, number]
   isUp: boolean
   referencePrice: number | null
   resolvedMarker: { referencePrice: number; referenceIndex: number; outcome: string } | null
@@ -49,7 +51,13 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
         data={chartData}
         margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
       >
-        <XAxis dataKey="index" hide domain={[0, chartData.length - 1]} />
+        <XAxis 
+          dataKey="index" 
+          hide 
+          domain={xDomain}
+          type="number"
+          allowDataOverflow
+        />
         <YAxis domain={[minPrice, maxPrice]} hide />
         
         {/* Past epoch boundary vertical lines */}
@@ -87,26 +95,14 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           />
         )}
         
-        {/* Resolved marker horizontal line - server provided */}
-        {resolvedMarker && resolvedMarker.referenceIndex >= 0 && (
+        {/* Resolved marker horizontal line (no dot - marked by epoch boundary) */}
+        {resolvedMarker && (
           <ReferenceLine
             y={resolvedMarker.referencePrice}
             stroke={markerColor}
             strokeDasharray="4 4"
             strokeOpacity={0.4}
             strokeWidth={1}
-          />
-        )}
-        
-        {/* Resolved marker dot - using server-provided index */}
-        {resolvedMarker && resolvedMarker.referenceIndex >= 0 && (
-          <ReferenceDot
-            x={resolvedMarker.referenceIndex}
-            y={resolvedMarker.referencePrice}
-            r={5}
-            fill={markerColor}
-            stroke={markerColor}
-            strokeWidth={2}
           />
         )}
         
@@ -123,16 +119,13 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
         )}
         
         <Line
-          type="natural"
+          type="monotone"
           dataKey="price"
           stroke={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
           strokeWidth={2}
           dot={false}
           activeDot={false}
-          isAnimationActive={true}
-          animationDuration={150}
-          animationEasing="ease-out"
-          connectNulls={false}
+          isAnimationActive={false}
         />
       </LineChart>
     </ResponsiveContainer>
@@ -153,8 +146,8 @@ export function PriceChart() {
   const isUp = percentChange >= 0
   
   // Transform data and find epoch boundaries
-  const { chartData, epochBoundaries, futureEpochBoundaries, actualDataLength } = useMemo(() => {
-    const data: Array<{ index: number; price: number | null }> = []
+  const { chartData, epochBoundaries, futureEpochBoundaries, xDomain } = useMemo(() => {
+    const data: Array<{ index: number; price: number }> = []
     const pastBoundaries: number[] = []
     let lastEpoch: number | undefined = undefined
     
@@ -174,14 +167,9 @@ export function PriceChart() {
     
     const actualLength = data.length
     
-    // Add future empty points (same length as actual data)
-    const futurePointsCount = Math.max(actualLength, 50)
-    for (let i = 0; i < futurePointsCount; i++) {
-      data.push({
-        index: actualLength + i,
-        price: null,
-      })
-    }
+    // Calculate x domain to show future space (2x the data)
+    const futureSpace = Math.max(actualLength, 50)
+    const domain: [number, number] = [0, actualLength + futureSpace]
     
     // Calculate future epoch boundaries
     const futureBoundaries: number[] = []
@@ -192,7 +180,7 @@ export function PriceChart() {
       
       for (let i = 0; i < FUTURE_EPOCHS_TO_SHOW; i++) {
         const futureIndex = actualLength + pointsUntilNextEpoch + (i * pointsPerEpoch)
-        if (futureIndex < data.length) {
+        if (futureIndex < domain[1]) {
           futureBoundaries.push(Math.round(futureIndex))
         }
       }
@@ -202,25 +190,24 @@ export function PriceChart() {
       chartData: data, 
       epochBoundaries: pastBoundaries, 
       futureEpochBoundaries: futureBoundaries,
-      actualDataLength: actualLength
+      xDomain: domain
     }
   }, [priceHistory, timeRemaining])
   
-  // Calculate Y-axis domain (only from actual data)
+  // Calculate Y-axis domain
   const [minPrice, maxPrice] = useMemo(() => {
-    if (actualDataLength === 0) return [0, 100]
+    if (chartData.length === 0) return [0, 100]
     let min = Infinity
     let max = -Infinity
-    for (let i = 0; i < actualDataLength; i++) {
-      const price = chartData[i]?.price
-      if (price !== null) {
-        if (price < min) min = price
-        if (price > max) max = price
-      }
+    for (const point of chartData) {
+      if (point.price < min) min = point.price
+      if (point.price > max) max = point.price
     }
     const padding = (max - min) * 0.15 || 0.1
     return [min - padding, max + padding]
-  }, [chartData, actualDataLength])
+  }, [chartData])
+  
+  const lastDataIndex = chartData.length - 1
   
   return (
     <div className="relative w-full h-full flex flex-col">
@@ -254,12 +241,13 @@ export function PriceChart() {
           chartData={chartData}
           minPrice={minPrice}
           maxPrice={maxPrice}
+          xDomain={xDomain}
           isUp={isUp}
           referencePrice={referencePrice}
           resolvedMarker={resolvedMarker}
           epochBoundaries={epochBoundaries}
           futureEpochBoundaries={futureEpochBoundaries}
-          lastDataIndex={actualDataLength - 1}
+          lastDataIndex={lastDataIndex}
           lastPrice={currentPrice}
         />
       </div>

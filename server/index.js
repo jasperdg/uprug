@@ -11,14 +11,15 @@ const EPOCH_DURATION = 10000; // 10 seconds
 let pythWs = null;
 let reconnectTimeout = null;
 
-// Price state
+// Price state - SETTLEMENT USES THE ABSOLUTE LAST TICK PRICE
 let currentPrice = null;
 let lastPriceTimestamp = null;
+let lastTickPriceInEpoch = null; // Explicitly track the last tick in current epoch
 
 // Epoch state
 let currentEpoch = Math.floor(Date.now() / EPOCH_DURATION);
 let epochStartPrice = null;
-let lastEpochEndPrice = null;
+let lastEpochEndPrice = null; // This is the settlement price from the previous epoch
 let epochHistory = []; // Store recent epoch results
 const MAX_EPOCH_HISTORY = 20;
 
@@ -67,18 +68,21 @@ function broadcast(data) {
   });
 }
 
-// Process epoch end
+// Process epoch end - SETTLEMENT USES THE ABSOLUTE LAST TICK
 function processEpochEnd() {
-  if (currentPrice === null) return;
+  if (lastTickPriceInEpoch === null && currentPrice === null) return;
   
   const endedEpoch = currentEpoch;
-  const epochEndPrice = currentPrice;
+  // Use the last tick price received in this epoch as the settlement price
+  const epochEndPrice = lastTickPriceInEpoch || currentPrice;
   
-  // Determine outcome (up or down from previous epoch)
+  // Determine outcome (up or down from previous epoch's settlement price)
   let outcome = null;
   if (lastEpochEndPrice !== null) {
     outcome = epochEndPrice > lastEpochEndPrice ? 'up' : 'down';
   }
+  
+  console.log(`Settlement: Epoch ${endedEpoch} - Last tick: $${epochEndPrice.toFixed(4)}, Ref: $${lastEpochEndPrice?.toFixed(4) || 'N/A'}, Outcome: ${outcome || 'first epoch'}`);
   
   // Create epoch result
   const epochResult = {
@@ -121,12 +125,11 @@ function processEpochEnd() {
     timestamp: Date.now()
   });
   
-  console.log(`Epoch ${endedEpoch} ended: $${epochEndPrice.toFixed(2)} (${outcome || 'first'})`);
-  
   // Update state for next epoch
-  lastEpochEndPrice = epochEndPrice;
+  lastEpochEndPrice = epochEndPrice; // This becomes the reference price for next epoch
   currentEpoch = getEpochNumber();
   epochStartPrice = currentPrice;
+  lastTickPriceInEpoch = null; // Reset for new epoch
   
   // Broadcast new epoch start
   broadcast({
@@ -190,9 +193,10 @@ function connectToPyth() {
           if (!isNaN(price) && price > 0) {
             const timestamp = Date.now();
             
-            // Update current price
+            // Update current price - this is the LAST TICK used for settlement
             currentPrice = price;
             lastPriceTimestamp = timestamp;
+            lastTickPriceInEpoch = price; // Track the absolute last tick
             
             // Set epoch start price if not set
             if (epochStartPrice === null) {
