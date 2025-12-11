@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react'
+import { useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import { useGameStore } from '../../stores/gameStore'
@@ -12,6 +12,10 @@ export function WinEffect() {
   const { vibrateOnWin, vibrateOnLoss } = useHaptics()
   const { playWin, playLoss } = useSoundEffects()
   const isMobile = useIsMobile()
+  
+  // Track if we've already triggered effects for this result
+  const hasTriggeredRef = useRef(false)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   
   const isWin = showResult && lastPayout !== null && lastPayout > 0
   const isLoss = showResult && lastPayout !== null && lastPayout === 0
@@ -27,24 +31,51 @@ export function WinEffect() {
     })
   }, [isMobile])
   
+  // Handle result display - only trigger once per result
   useEffect(() => {
+    if (!showResult) {
+      // Reset when result is cleared
+      hasTriggeredRef.current = false
+      return
+    }
+    
+    // Don't re-trigger if already triggered
+    if (hasTriggeredRef.current) return
+    hasTriggeredRef.current = true
+    
+    // Clear any existing timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+    }
+    
     if (isWin) {
       triggerConfetti()
       vibrateOnWin()
       playWin()
       
       // Clear result after animation
-      const timer = setTimeout(clearResult, 2500)
-      return () => clearTimeout(timer)
+      timeoutRef.current = setTimeout(() => {
+        clearResult()
+      }, 2500)
     } else if (isLoss) {
       vibrateOnLoss()
       playLoss()
       
       // Clear result after animation
-      const timer = setTimeout(clearResult, 2000)
-      return () => clearTimeout(timer)
+      timeoutRef.current = setTimeout(() => {
+        clearResult()
+      }, 2000)
     }
-  }, [isWin, isLoss, triggerConfetti, vibrateOnWin, vibrateOnLoss, playWin, playLoss, clearResult])
+    
+    // Cleanup only on unmount
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  // Only depend on showResult to avoid re-runs from callback recreations
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showResult])
   
   return (
     <AnimatePresence>
@@ -129,4 +160,3 @@ export function WinEffect() {
     </AnimatePresence>
   )
 }
-

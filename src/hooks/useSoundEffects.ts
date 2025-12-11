@@ -1,14 +1,54 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useRef, useEffect } from 'react'
 import { useUserStore } from '../stores/userStore'
 
 // Web Audio API context
 let audioContext: AudioContext | null = null
+let audioUnlocked = false
 
 function getAudioContext(): AudioContext {
   if (!audioContext) {
     audioContext = new (window.AudioContext || (window as typeof window & { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
   }
   return audioContext
+}
+
+// Unlock audio on mobile - must be called from user gesture
+function unlockAudio() {
+  if (audioUnlocked) return
+  
+  const ctx = getAudioContext()
+  
+  // Resume context if suspended
+  if (ctx.state === 'suspended') {
+    ctx.resume()
+  }
+  
+  // Play a silent buffer to fully unlock on iOS
+  const buffer = ctx.createBuffer(1, 1, 22050)
+  const source = ctx.createBufferSource()
+  source.buffer = buffer
+  source.connect(ctx.destination)
+  source.start(0)
+  
+  audioUnlocked = true
+  console.log('Audio unlocked')
+}
+
+// Set up global unlock listener
+if (typeof window !== 'undefined') {
+  const unlockHandler = () => {
+    unlockAudio()
+    // Remove listeners after unlock
+    document.removeEventListener('touchstart', unlockHandler, true)
+    document.removeEventListener('touchend', unlockHandler, true)
+    document.removeEventListener('click', unlockHandler, true)
+    document.removeEventListener('keydown', unlockHandler, true)
+  }
+  
+  document.addEventListener('touchstart', unlockHandler, true)
+  document.addEventListener('touchend', unlockHandler, true)
+  document.addEventListener('click', unlockHandler, true)
+  document.addEventListener('keydown', unlockHandler, true)
 }
 
 // Play a coin/bell tone
@@ -182,14 +222,16 @@ export function useSoundEffects() {
   const soundEnabled = useUserStore((state) => state.soundEnabled)
   const initializedRef = useRef(false)
   
+  // Try to unlock audio when component mounts
+  useEffect(() => {
+    // Pre-create audio context
+    getAudioContext()
+  }, [])
+  
   const loadSounds = useCallback(() => {
     if (initializedRef.current) return
     initializedRef.current = true
-    
-    const ctx = getAudioContext()
-    if (ctx.state === 'suspended') {
-      ctx.resume()
-    }
+    unlockAudio()
   }, [])
   
   const playWin = useCallback(() => {
