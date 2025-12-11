@@ -1,3 +1,4 @@
+const http = require('http');
 const WebSocket = require('ws');
 
 // Configuration
@@ -11,10 +12,27 @@ let currentPrice = null;
 let lastPriceUpdate = null;
 let reconnectTimeout = null;
 
-// Create WebSocket server for clients
-const wss = new WebSocket.Server({ port: PORT });
+// Create HTTP server for health checks
+const server = http.createServer((req, res) => {
+  // Health check endpoint
+  if (req.url === '/' || req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'ok',
+      pythConnected: pythWs && pythWs.readyState === WebSocket.OPEN,
+      currentPrice: currentPrice,
+      lastUpdate: lastPriceUpdate,
+      clients: wss.clients.size
+    }));
+    return;
+  }
+  
+  res.writeHead(404);
+  res.end('Not found');
+});
 
-console.log(`WebSocket server started on port ${PORT}`);
+// Create WebSocket server attached to HTTP server
+const wss = new WebSocket.Server({ server });
 
 // Broadcast to all connected clients
 function broadcast(data) {
@@ -123,8 +141,14 @@ wss.on('connection', (ws, req) => {
   });
 });
 
-// Start Pyth connection
-connectToPyth();
+// Start server
+server.listen(PORT, () => {
+  console.log(`Server started on port ${PORT}`);
+  console.log(`Health check: http://localhost:${PORT}/health`);
+  
+  // Start Pyth connection
+  connectToPyth();
+});
 
 // Heartbeat to keep connections alive
 setInterval(() => {
@@ -148,10 +172,11 @@ process.on('SIGINT', () => {
   }
   
   wss.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+    server.close(() => {
+      console.log('Server closed');
+      process.exit(0);
+    });
   });
 });
 
-console.log('Price relay server ready');
-
+console.log('Price relay server initializing...');
