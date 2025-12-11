@@ -6,7 +6,6 @@ import {
   YAxis,
   ResponsiveContainer,
   ReferenceLine,
-  ReferenceDot,
 } from 'recharts'
 import { usePriceStore } from '../../stores/priceStore'
 import { useGameStore } from '../../stores/gameStore'
@@ -27,7 +26,6 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   epochBoundaries,
   futureEpochBoundaries,
   lastDataIndex,
-  lastPrice,
 }: {
   chartData: Array<{ index: number; price: number }>
   minPrice: number
@@ -39,7 +37,6 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   epochBoundaries: number[]
   futureEpochBoundaries: number[]
   lastDataIndex: number
-  lastPrice: number
 }) {
   const markerColor = resolvedMarker?.outcome === 'up' 
     ? 'var(--accent-up)' 
@@ -106,28 +103,27 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           />
         )}
         
-        {/* Current position dot (last tick of line) */}
-        {lastDataIndex >= 0 && lastPrice > 0 && (
-          <ReferenceDot
-            x={lastDataIndex}
-            y={lastPrice}
-            r={4}
-            fill={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
-            stroke="var(--bg-primary)"
-            strokeWidth={2}
-          />
-        )}
-        
         <Line
-          type="natural"
+          type="monotone"
           dataKey="price"
           stroke={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
           strokeWidth={2}
-          dot={false}
+          dot={(props: { cx?: number; cy?: number; index?: number; payload?: { price: number } }) => {
+            // Only render dot on the last data point
+            if (props.index !== lastDataIndex || !props.cx || !props.cy) return null
+            return (
+              <circle
+                cx={props.cx}
+                cy={props.cy}
+                r={4}
+                fill={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
+                stroke="var(--bg-primary)"
+                strokeWidth={2}
+              />
+            )
+          }}
           activeDot={false}
-          isAnimationActive={true}
-          animationDuration={100}
-          animationEasing="ease-out"
+          isAnimationActive={false}
         />
       </LineChart>
     </ResponsiveContainer>
@@ -211,18 +207,18 @@ export function PriceChart() {
   
   return (
     <div className="relative w-full h-full flex flex-col">
-      {/* Price display with smooth transitions - shows REAL price */}
+      {/* Price display */}
       <div className="flex items-center justify-between px-4 py-2">
         <div className="flex items-baseline gap-2">
-          <span className="text-2xl md:text-3xl font-mono font-bold text-text-primary transition-all duration-150">
+          <span className="text-2xl md:text-3xl font-mono font-bold text-text-primary">
             ${formatPrice(currentPrice)}
           </span>
           <span className="text-xs text-text-secondary">SOL/USD</span>
         </div>
-        <div className={`flex items-center gap-1 text-lg font-mono font-semibold transition-colors duration-200 ${
+        <div className={`flex items-center gap-1 text-lg font-mono font-semibold ${
           isUp ? 'text-accent-up' : 'text-accent-down'
         }`}>
-          <span className="transition-transform duration-150">{isUp ? '▲' : '▼'}</span>
+          <span>{isUp ? '▲' : '▼'}</span>
           <span>{formatPercentage(percentChange)}</span>
         </div>
       </div>
@@ -248,7 +244,6 @@ export function PriceChart() {
           epochBoundaries={epochBoundaries}
           futureEpochBoundaries={futureEpochBoundaries}
           lastDataIndex={lastDataIndex}
-          lastPrice={currentPrice}
         />
       </div>
       

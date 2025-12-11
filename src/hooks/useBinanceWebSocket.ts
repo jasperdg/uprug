@@ -3,7 +3,26 @@ import { usePriceStore } from '../stores/priceStore'
 import { useGameStore } from '../stores/gameStore'
 
 // Connect to our relay server
-const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080'
+// In production (HTTPS), must use wss://
+// Falls back to ws://localhost:8080 for local development
+function getWebSocketUrl(): string {
+  // If explicitly set, use that
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL
+  }
+  
+  // In production on HTTPS, we need a secure WebSocket
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    // No server configured - show error
+    console.error('No VITE_WS_URL configured for production. WebSocket will fail.')
+    return 'wss://your-server.railway.app' // Placeholder - will fail but with clear message
+  }
+  
+  // Local development
+  return 'ws://localhost:8080'
+}
+
+const WS_URL = getWebSocketUrl()
 const RECONNECT_DELAY = 3000
 
 export function useBinanceWebSocket() {
