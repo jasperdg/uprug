@@ -90,8 +90,9 @@ export function useBinanceWebSocket() {
               addEpochResult({
                 epoch: data.epoch,
                 endPrice: data.endPrice,
+                referencePrice: data.referencePrice,
+                referenceIndex: data.referenceIndex,
                 outcome: data.outcome,
-                previousPrice: data.previousPrice,
                 timestamp: data.timestamp
               })
               break

@@ -12,8 +12,9 @@ export interface UserBet {
 export interface EpochResult {
   epoch: number
   endPrice: number
+  referencePrice: number | null
+  referenceIndex: number
   outcome: BetDirection | null
-  previousPrice: number | null
   timestamp: number
 }
 
@@ -26,6 +27,7 @@ export interface PendingRound {
 
 export interface ResolvedMarker {
   referencePrice: number
+  referenceIndex: number
   outcome: BetDirection
   timestamp: number
 }
@@ -64,7 +66,7 @@ interface GameState {
   setPendingRound: (pending: PendingRound | null) => void
   addEpochResult: (result: EpochResult) => void
   initializeEpochHistory: (history: EpochResult[]) => void
-  resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number) => void
+  resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number, referenceIndex: number) => void
   clearResult: () => void
   simulateOtherBets: () => void
 }
@@ -111,11 +113,12 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { epochHistory, pendingRound } = get()
     const newHistory = [...epochHistory, result].slice(-20)
     
-    // Update resolved marker for chart
+    // Update resolved marker for chart using server-provided data
     let resolvedMarker: ResolvedMarker | null = null
-    if (result.outcome && result.previousPrice) {
+    if (result.outcome && result.referencePrice !== null) {
       resolvedMarker = {
-        referencePrice: result.previousPrice,
+        referencePrice: result.referencePrice,
+        referenceIndex: result.referenceIndex,
         outcome: result.outcome,
         timestamp: result.timestamp,
       }
@@ -155,9 +158,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const lastResult = history[history.length - 1]
     let resolvedMarker: ResolvedMarker | null = null
     
-    if (lastResult?.outcome && lastResult?.previousPrice) {
+    if (lastResult?.outcome && lastResult?.referencePrice !== null) {
       resolvedMarker = {
-        referencePrice: lastResult.previousPrice,
+        referencePrice: lastResult.referencePrice,
+        referenceIndex: lastResult.referenceIndex,
         outcome: lastResult.outcome,
         timestamp: lastResult.timestamp,
       }
@@ -169,7 +173,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     })
   },
   
-  resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number) => {
+  resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number, referenceIndex: number) => {
     set({
       lastOutcome: outcome,
       lastPayout: payout,
@@ -177,6 +181,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       pendingRound: null,
       resolvedMarker: {
         referencePrice,
+        referenceIndex,
         outcome,
         timestamp: Date.now(),
       },

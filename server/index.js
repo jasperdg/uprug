@@ -101,13 +101,23 @@ function processEpochEnd() {
     priceHistory[priceHistory.length - 1].epochResult = epochResult;
   }
   
-  // Broadcast epoch end to all clients
+  // Find the index of the reference price point in history
+  let referenceIndex = -1;
+  for (let i = priceHistory.length - 1; i >= 0; i--) {
+    if (priceHistory[i].epoch < endedEpoch) {
+      referenceIndex = i;
+      break;
+    }
+  }
+  
+  // Broadcast epoch end to all clients with reference price info
   broadcast({
     type: 'epoch_end',
     epoch: endedEpoch,
     endPrice: epochEndPrice,
+    referencePrice: lastEpochEndPrice,
+    referenceIndex: referenceIndex,
     outcome,
-    previousPrice: lastEpochEndPrice,
     timestamp: Date.now()
   });
   
