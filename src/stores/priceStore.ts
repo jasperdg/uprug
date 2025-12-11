@@ -20,6 +20,7 @@ interface PriceState {
   setConnected: (connected: boolean) => void
   initializeHistory: (history: PricePoint[]) => void
   clearHistory: () => void
+  markLastPointAsEpochEnd: () => void
 }
 
 const MAX_HISTORY_POINTS = 100
@@ -68,5 +69,18 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   
   clearHistory: () => {
     set({ priceHistory: [] })
+  },
+  
+  markLastPointAsEpochEnd: () => {
+    const { priceHistory } = get()
+    if (priceHistory.length === 0) return
+    
+    // Mark the last point as epoch end (server determined this is the settlement tick)
+    const newHistory = [...priceHistory]
+    newHistory[newHistory.length - 1] = {
+      ...newHistory[newHistory.length - 1],
+      isEpochEnd: true
+    }
+    set({ priceHistory: newHistory })
   },
 }))

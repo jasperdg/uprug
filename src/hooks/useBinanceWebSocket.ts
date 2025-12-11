@@ -10,7 +10,7 @@ export function useBinanceWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
   
-  const { addPricePoint, setConnected, initializeHistory } = usePriceStore()
+  const { addPricePoint, setConnected, initializeHistory, markLastPointAsEpochEnd } = usePriceStore()
   const { 
     setTimeRemaining, 
     setRound, 
@@ -86,7 +86,10 @@ export function useBinanceWebSocket() {
               break
               
             case 'epoch_end':
-              // Epoch ended with result
+              // Epoch ended - mark the last price point as the settlement tick
+              markLastPointAsEpochEnd()
+              
+              // Process epoch result
               addEpochResult({
                 epoch: data.epoch,
                 endPrice: data.endPrice,
@@ -136,6 +139,7 @@ export function useBinanceWebSocket() {
     addPricePoint, 
     setConnected, 
     initializeHistory,
+    markLastPointAsEpochEnd,
     setTimeRemaining,
     setRound,
     setReferencePrice,

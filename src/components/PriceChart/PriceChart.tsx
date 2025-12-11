@@ -145,11 +145,10 @@ export function PriceChart() {
   
   const isUp = percentChange >= 0
   
-  // Transform data and find epoch boundaries
+  // Transform data and find epoch boundaries (using server-provided isEpochEnd flag)
   const { chartData, epochBoundaries, futureEpochBoundaries, xDomain } = useMemo(() => {
     const data: Array<{ index: number; price: number }> = []
     const pastBoundaries: number[] = []
-    let lastEpoch: number | undefined = undefined
     
     // Add actual price data
     priceHistory.forEach((point, index) => {
@@ -158,11 +157,10 @@ export function PriceChart() {
         price: point.price,
       })
       
-      // Detect epoch change
-      if (point.epoch !== undefined && lastEpoch !== undefined && point.epoch !== lastEpoch) {
+      // Use server-provided epoch end marker
+      if (point.isEpochEnd) {
         pastBoundaries.push(index)
       }
-      lastEpoch = point.epoch
     })
     
     const actualLength = data.length
