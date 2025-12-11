@@ -11,19 +11,10 @@ function getAudioContext(): AudioContext {
   return audioContext
 }
 
-// Generate a simple tone
-function playTone(
-  frequency: number,
-  duration: number,
-  type: OscillatorType = 'sine',
-  volume: number = 0.3
-) {
+// Play a coin/bell tone
+function playBellTone(frequency: number, duration: number, volume: number, delay: number) {
   const ctx = getAudioContext()
-  
-  // Resume context if suspended (required for autoplay policies)
-  if (ctx.state === 'suspended') {
-    ctx.resume()
-  }
+  if (ctx.state === 'suspended') ctx.resume()
   
   const oscillator = ctx.createOscillator()
   const gainNode = ctx.createGain()
@@ -31,60 +22,170 @@ function playTone(
   oscillator.connect(gainNode)
   gainNode.connect(ctx.destination)
   
-  oscillator.type = type
-  oscillator.frequency.setValueAtTime(frequency, ctx.currentTime)
+  oscillator.type = 'sine'
+  oscillator.frequency.setValueAtTime(frequency, ctx.currentTime + delay)
   
-  // Envelope for smoother sound
-  gainNode.gain.setValueAtTime(0, ctx.currentTime)
-  gainNode.gain.linearRampToValueAtTime(volume, ctx.currentTime + 0.01)
-  gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration)
+  // Bell-like envelope: quick attack, longer decay
+  gainNode.gain.setValueAtTime(0, ctx.currentTime + delay)
+  gainNode.gain.linearRampToValueAtTime(volume, ctx.currentTime + delay + 0.005)
+  gainNode.gain.exponentialRampToValueAtTime(volume * 0.3, ctx.currentTime + delay + 0.1)
+  gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + duration)
   
-  oscillator.start(ctx.currentTime)
-  oscillator.stop(ctx.currentTime + duration)
+  oscillator.start(ctx.currentTime + delay)
+  oscillator.stop(ctx.currentTime + delay + duration)
 }
 
-// Win sound - ascending happy tones
+// Play metallic click
+function playClick(frequency: number, volume: number, delay: number) {
+  const ctx = getAudioContext()
+  if (ctx.state === 'suspended') ctx.resume()
+  
+  const oscillator = ctx.createOscillator()
+  const gainNode = ctx.createGain()
+  
+  oscillator.connect(gainNode)
+  gainNode.connect(ctx.destination)
+  
+  oscillator.type = 'square'
+  oscillator.frequency.setValueAtTime(frequency, ctx.currentTime + delay)
+  
+  gainNode.gain.setValueAtTime(0, ctx.currentTime + delay)
+  gainNode.gain.linearRampToValueAtTime(volume, ctx.currentTime + delay + 0.001)
+  gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.03)
+  
+  oscillator.start(ctx.currentTime + delay)
+  oscillator.stop(ctx.currentTime + delay + 0.03)
+}
+
+// Coin drop sound
+function playCoinDrop(delay: number) {
+  const ctx = getAudioContext()
+  if (ctx.state === 'suspended') ctx.resume()
+  
+  // Multiple harmonics for metallic coin sound
+  const frequencies = [4200, 5600, 7000]
+  
+  frequencies.forEach((freq, i) => {
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(freq, ctx.currentTime + delay)
+    
+    const vol = 0.08 / (i + 1)
+    gain.gain.setValueAtTime(0, ctx.currentTime + delay)
+    gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + delay + 0.002)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.15)
+    
+    osc.start(ctx.currentTime + delay)
+    osc.stop(ctx.currentTime + delay + 0.15)
+  })
+}
+
+// Ka-ching! Cash register / money sound
 function playWinSound() {
   const ctx = getAudioContext()
   if (ctx.state === 'suspended') ctx.resume()
   
-  // Play a cheerful arpeggio
-  const notes = [523.25, 659.25, 783.99, 1046.50] // C5, E5, G5, C6
-  notes.forEach((freq, i) => {
-    setTimeout(() => playTone(freq, 0.15, 'sine', 0.25), i * 80)
-  })
+  // Initial drawer open click
+  playClick(1500, 0.12, 0)
+  playClick(800, 0.08, 0.01)
+  
+  // Main bell "CHING!" - two-tone bell like a cash register
+  playBellTone(2093, 0.4, 0.2, 0.03)  // C7
+  playBellTone(2637, 0.4, 0.15, 0.03) // E7
+  playBellTone(3136, 0.35, 0.1, 0.05) // G7
+  
+  // Coin cascade
+  playCoinDrop(0.12)
+  playCoinDrop(0.18)
+  playCoinDrop(0.23)
+  playCoinDrop(0.27)
+  playCoinDrop(0.30)
+  
+  // Final sparkle
+  playBellTone(4186, 0.2, 0.06, 0.35) // C8
 }
 
-// Loss sound - descending sad tones
+// Soft "womp" sound for losses - less harsh
 function playLossSound() {
   const ctx = getAudioContext()
   if (ctx.state === 'suspended') ctx.resume()
   
-  // Play a descending minor tone
-  playTone(400, 0.15, 'sawtooth', 0.2)
-  setTimeout(() => playTone(300, 0.2, 'sawtooth', 0.15), 100)
+  const oscillator = ctx.createOscillator()
+  const gainNode = ctx.createGain()
+  
+  oscillator.connect(gainNode)
+  gainNode.connect(ctx.destination)
+  
+  // Descending tone - softer "womp womp"
+  oscillator.type = 'sine'
+  oscillator.frequency.setValueAtTime(300, ctx.currentTime)
+  oscillator.frequency.exponentialRampToValueAtTime(150, ctx.currentTime + 0.2)
+  
+  // Softer volume, quicker fade
+  gainNode.gain.setValueAtTime(0, ctx.currentTime)
+  gainNode.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.02)
+  gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25)
+  
+  oscillator.start(ctx.currentTime)
+  oscillator.stop(ctx.currentTime + 0.25)
 }
 
-// Bet sound - quick click
+// Bet sound - satisfying click
 function playBetSound() {
-  playTone(800, 0.05, 'square', 0.15)
+  const ctx = getAudioContext()
+  if (ctx.state === 'suspended') ctx.resume()
+  
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(1200, ctx.currentTime)
+  osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.05)
+  
+  gain.gain.setValueAtTime(0.15, ctx.currentTime)
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08)
+  
+  osc.start(ctx.currentTime)
+  osc.stop(ctx.currentTime + 0.08)
 }
 
-// Tick sound - subtle tick
+// Tick sound
 function playTickSound() {
-  playTone(1000, 0.03, 'sine', 0.1)
+  const ctx = getAudioContext()
+  if (ctx.state === 'suspended') ctx.resume()
+  
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  
+  osc.type = 'sine'
+  osc.frequency.setValueAtTime(1000, ctx.currentTime)
+  
+  gain.gain.setValueAtTime(0.08, ctx.currentTime)
+  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.03)
+  
+  osc.start(ctx.currentTime)
+  osc.stop(ctx.currentTime + 0.03)
 }
 
 export function useSoundEffects() {
   const soundEnabled = useUserStore((state) => state.soundEnabled)
   const initializedRef = useRef(false)
   
-  // Initialize audio context on first user interaction
   const loadSounds = useCallback(() => {
     if (initializedRef.current) return
     initializedRef.current = true
     
-    // Create and resume audio context
     const ctx = getAudioContext()
     if (ctx.state === 'suspended') {
       ctx.resume()

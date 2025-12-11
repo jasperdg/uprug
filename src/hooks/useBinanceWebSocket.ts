@@ -1,9 +1,11 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { usePriceStore } from '../stores/priceStore'
 
-const BINANCE_WS_URL = 'wss://stream.binance.com:9443/ws/solusdt@trade'
+// Connect to our relay server instead of Pyth directly
+// In production, this would be your deployed server URL
+const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080'
 const RECONNECT_DELAY = 3000
-const THROTTLE_MS = 200 // Update at most 5 times per second
+const THROTTLE_MS = 100 // Update 10 times per second for smooth updates
 
 export function useBinanceWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
@@ -18,38 +20,47 @@ export function useBinanceWebSocket() {
     }
     
     try {
-      const ws = new WebSocket(BINANCE_WS_URL)
+      const ws = new WebSocket(WS_URL)
       wsRef.current = ws
       
       ws.onopen = () => {
-        console.log('Binance WebSocket connected')
+        console.log('Connected to price server')
         setConnected(true)
       }
       
       ws.onmessage = (event) => {
         const now = Date.now()
         
-        // Throttle updates
-        if (now - lastUpdateRef.current < THROTTLE_MS) {
-          return
-        }
-        lastUpdateRef.current = now
-        
         try {
           const data = JSON.parse(event.data)
-          const price = parseFloat(data.p)
-          const timestamp = data.T || now
           
-          if (!isNaN(price) && price > 0) {
-            addPricePoint({ price, timestamp })
+          // Handle price updates from our server
+          if (data.type === 'price') {
+            // Throttle updates
+            if (now - lastUpdateRef.current < THROTTLE_MS) {
+              return
+            }
+            lastUpdateRef.current = now
+            
+            const price = data.price
+            const timestamp = data.timestamp || now
+            
+            if (!isNaN(price) && price > 0) {
+              addPricePoint({ price, timestamp })
+            }
+          }
+          
+          // Handle status updates
+          if (data.type === 'status') {
+            setConnected(data.connected)
           }
         } catch (e) {
-          console.error('Error parsing price data:', e)
+          console.error('Error parsing server data:', e)
         }
       }
       
       ws.onclose = () => {
-        console.log('Binance WebSocket disconnected')
+        console.log('Disconnected from price server')
         setConnected(false)
         wsRef.current = null
         
@@ -60,7 +71,7 @@ export function useBinanceWebSocket() {
       }
       
       ws.onerror = (error) => {
-        console.error('Binance WebSocket error:', error)
+        console.error('WebSocket error:', error)
         ws.close()
       }
     } catch (error) {
@@ -101,4 +112,3 @@ export function useBinanceWebSocket() {
     reconnect: connect,
   }
 }
-

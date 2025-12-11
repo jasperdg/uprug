@@ -16,6 +16,12 @@ export interface PendingRound {
   pools: { up: number; down: number }
 }
 
+export interface ResolvedMarker {
+  referencePrice: number
+  outcome: BetDirection
+  timestamp: number
+}
+
 interface GameState {
   // Current betting round
   currentRound: number
@@ -34,6 +40,9 @@ interface GameState {
   lastPayout: number | null
   showResult: boolean
   
+  // Marker for chart showing last resolution point
+  resolvedMarker: ResolvedMarker | null
+  
   // Actions
   setRound: (round: number) => void
   setPhase: (phase: RoundPhase) => void
@@ -42,7 +51,7 @@ interface GameState {
   addToPool: (direction: BetDirection, amount: number) => void
   resetPools: () => void
   setPendingRound: (pending: PendingRound | null) => void
-  resolveRound: (outcome: BetDirection, payout: number | null) => void
+  resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number) => void
   clearResult: () => void
   simulateOtherBets: () => void
 }
@@ -57,6 +66,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   lastOutcome: null,
   lastPayout: null,
   showResult: false,
+  resolvedMarker: null,
   
   setRound: (round: number) => set({ currentRound: round }),
   
@@ -80,12 +90,17 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   setPendingRound: (pending: PendingRound | null) => set({ pendingRound: pending }),
   
-  resolveRound: (outcome: BetDirection, payout: number | null) => {
+  resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number) => {
     set({
       lastOutcome: outcome,
       lastPayout: payout,
       showResult: true,
       pendingRound: null,
+      resolvedMarker: {
+        referencePrice,
+        outcome,
+        timestamp: Date.now(),
+      },
     })
   },
   

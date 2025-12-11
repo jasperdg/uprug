@@ -86,7 +86,8 @@ export function useGameLoop() {
       })
     }
     
-    resolveRound(outcome, payout)
+    // Always resolve with reference price for chart marker
+    resolveRound(outcome, payout, pending.referencePrice)
   }, [adjustBalance, addBetRecord, resolveRound])
   
   // Main game loop

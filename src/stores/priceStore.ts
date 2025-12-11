@@ -19,7 +19,7 @@ interface PriceState {
   clearHistory: () => void
 }
 
-const MAX_HISTORY_POINTS = 120 // 2 minutes at 1 point per second
+const MAX_HISTORY_POINTS = 100 // ~10 seconds of data at 10 updates/second
 
 export const usePriceStore = create<PriceState>((set, get) => ({
   currentPrice: 0,
