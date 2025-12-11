@@ -9,6 +9,14 @@ export interface UserBet {
   timestamp: number
 }
 
+export interface EpochResult {
+  epoch: number
+  endPrice: number
+  outcome: BetDirection | null
+  previousPrice: number | null
+  timestamp: number
+}
+
 export interface PendingRound {
   roundNumber: number
   referencePrice: number
@@ -23,16 +31,19 @@ export interface ResolvedMarker {
 }
 
 interface GameState {
-  // Current betting round
+  // Current epoch (server-managed)
   currentRound: number
   roundPhase: RoundPhase
-  timeRemaining: number // in milliseconds
-  roundStartTime: number
+  timeRemaining: number
+  referencePrice: number | null
+  
+  // Epoch history from server
+  epochHistory: EpochResult[]
   
   // Pools for current betting window
   currentPools: { up: number; down: number }
   
-  // Pending resolution (bet from previous round waiting for outcome)
+  // Pending resolution (bet waiting for outcome)
   pendingRound: PendingRound | null
   
   // Last resolved outcome
@@ -40,17 +51,19 @@ interface GameState {
   lastPayout: number | null
   showResult: boolean
   
-  // Marker for chart showing last resolution point
+  // Marker for chart
   resolvedMarker: ResolvedMarker | null
   
   // Actions
   setRound: (round: number) => void
   setPhase: (phase: RoundPhase) => void
   setTimeRemaining: (time: number) => void
-  setRoundStartTime: (time: number) => void
+  setReferencePrice: (price: number | null) => void
   addToPool: (direction: BetDirection, amount: number) => void
   resetPools: () => void
   setPendingRound: (pending: PendingRound | null) => void
+  addEpochResult: (result: EpochResult) => void
+  initializeEpochHistory: (history: EpochResult[]) => void
   resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number) => void
   clearResult: () => void
   simulateOtherBets: () => void
@@ -60,7 +73,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   currentRound: 0,
   roundPhase: 'betting',
   timeRemaining: 10000,
-  roundStartTime: 0,
+  referencePrice: null,
+  epochHistory: [],
   currentPools: { up: 0, down: 0 },
   pendingRound: null,
   lastOutcome: null,
@@ -72,9 +86,12 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   setPhase: (phase: RoundPhase) => set({ roundPhase: phase }),
   
-  setTimeRemaining: (time: number) => set({ timeRemaining: Math.max(0, time) }),
+  setTimeRemaining: (time: number) => {
+    const phase: RoundPhase = time < 500 ? 'resolving' : time < 2000 ? 'locked' : 'betting'
+    set({ timeRemaining: Math.max(0, time), roundPhase: phase })
+  },
   
-  setRoundStartTime: (time: number) => set({ roundStartTime: time }),
+  setReferencePrice: (price: number | null) => set({ referencePrice: price }),
   
   addToPool: (direction: BetDirection, amount: number) => {
     const { currentPools } = get()
@@ -89,6 +106,68 @@ export const useGameStore = create<GameState>((set, get) => ({
   resetPools: () => set({ currentPools: { up: 0, down: 0 } }),
   
   setPendingRound: (pending: PendingRound | null) => set({ pendingRound: pending }),
+  
+  addEpochResult: (result: EpochResult) => {
+    const { epochHistory, pendingRound } = get()
+    const newHistory = [...epochHistory, result].slice(-20)
+    
+    // Update resolved marker for chart
+    let resolvedMarker: ResolvedMarker | null = null
+    if (result.outcome && result.previousPrice) {
+      resolvedMarker = {
+        referencePrice: result.previousPrice,
+        outcome: result.outcome,
+        timestamp: result.timestamp,
+      }
+    }
+    
+    // Check if user had a bet on this epoch
+    let lastOutcome: BetDirection | null = null
+    let lastPayout: number | null = null
+    let showResult = false
+    
+    if (pendingRound && pendingRound.roundNumber === result.epoch - 1 && pendingRound.userBet) {
+      lastOutcome = result.outcome
+      showResult = true
+      
+      if (pendingRound.userBet.direction === result.outcome) {
+        // Winner - calculate payout (simplified for prototype)
+        const totalPool = pendingRound.pools.up + pendingRound.pools.down
+        const winningPool = pendingRound.pools[result.outcome!]
+        const rake = 0.05
+        lastPayout = (pendingRound.userBet.amount / winningPool) * totalPool * (1 - rake)
+      } else {
+        lastPayout = 0
+      }
+    }
+    
+    set({ 
+      epochHistory: newHistory,
+      resolvedMarker,
+      lastOutcome,
+      lastPayout,
+      showResult,
+      pendingRound: showResult ? null : pendingRound,
+    })
+  },
+  
+  initializeEpochHistory: (history: EpochResult[]) => {
+    const lastResult = history[history.length - 1]
+    let resolvedMarker: ResolvedMarker | null = null
+    
+    if (lastResult?.outcome && lastResult?.previousPrice) {
+      resolvedMarker = {
+        referencePrice: lastResult.previousPrice,
+        outcome: lastResult.outcome,
+        timestamp: lastResult.timestamp,
+      }
+    }
+    
+    set({ 
+      epochHistory: history,
+      resolvedMarker,
+    })
+  },
   
   resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number) => {
     set({
@@ -106,7 +185,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   
   clearResult: () => set({ showResult: false, lastOutcome: null, lastPayout: null }),
   
-  // Simulate other players betting (for prototype)
   simulateOtherBets: () => {
     const { currentPools } = get()
     const upBet = Math.random() * 50 + 10
@@ -119,4 +197,3 @@ export const useGameStore = create<GameState>((set, get) => ({
     })
   },
 }))
-

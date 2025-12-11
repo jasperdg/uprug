@@ -1,195 +1,99 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef } from 'react'
 import { useGameStore } from '../stores/gameStore'
 import { useUserStore } from '../stores/userStore'
 import { usePriceStore } from '../stores/priceStore'
-import { calculatePayout } from '../utils/parimutuel'
-
-const ROUND_DURATION = 10000 // 10 seconds
 
 /**
- * Get the start time of the current 10-second interval
- * Rounds are aligned to clock (:00, :10, :20, :30, :40, :50)
+ * Game loop hook - now simplified since epochs are server-managed
+ * This hook handles:
+ * - Watching for epoch changes and processing user bets
+ * - Simulating other player bets (for prototype)
+ * - Triggering win/loss effects
  */
-function getRoundStartTime(): number {
-  const now = Date.now()
-  return now - (now % ROUND_DURATION)
-}
-
-/**
- * Get time remaining in current round
- */
-function getTimeRemaining(): number {
-  const now = Date.now()
-  const elapsed = now % ROUND_DURATION
-  return ROUND_DURATION - elapsed
-}
-
-/**
- * Get current round number (based on epoch time)
- */
-function getRoundNumber(): number {
-  return Math.floor(Date.now() / ROUND_DURATION)
-}
-
 export function useGameLoop() {
-  const animationFrameRef = useRef<number | null>(null)
-  const lastRoundRef = useRef<number>(0)
+  const lastEpochRef = useRef<number>(0)
   
   const {
     currentRound,
-    pendingRound,
-    setRound,
-    setPhase,
-    setTimeRemaining,
-    setRoundStartTime,
-    setPendingRound,
-    resetPools,
-    resolveRound,
+    referencePrice,
+    timeRemaining,
+    roundPhase,
+    epochHistory,
+    showResult,
+    lastOutcome,
+    lastPayout,
+    clearResult,
     simulateOtherBets,
+    setPendingRound,
+    currentPools,
   } = useGameStore()
   
-  const { clearCurrentBet, adjustBalance, addBetRecord } = useUserStore()
+  const { currentBet, clearCurrentBet, adjustBalance, addBetRecord } = useUserStore()
+  const { currentPrice } = usePriceStore()
   
-  // Resolve pending round when we have a new price after round end
-  const resolvePendingRound = useCallback(() => {
-    const pending = useGameStore.getState().pendingRound
-    const price = usePriceStore.getState().currentPrice
-    
-    if (!pending || price === 0) return
-    
-    // Determine outcome
-    const outcome = price > pending.referencePrice ? 'up' : 'down'
-    
-    // Calculate payout if user had a bet
-    let payout: number | null = null
-    if (pending.userBet) {
-      payout = calculatePayout(
-        pending.userBet.amount,
-        pending.userBet.direction,
-        outcome,
-        pending.pools
-      )
+  // Watch for epoch changes
+  useEffect(() => {
+    if (currentRound > 0 && currentRound !== lastEpochRef.current) {
+      const previousEpoch = lastEpochRef.current
+      lastEpochRef.current = currentRound
       
-      // Add winnings to balance
-      if (payout > 0) {
-        adjustBalance(payout)
-      }
-      
-      // Record the bet
-      addBetRecord({
-        roundNumber: pending.roundNumber,
-        direction: pending.userBet.direction,
-        amount: pending.userBet.amount,
-        outcome,
-        payout: payout > 0 ? payout : 0,
-        timestamp: Date.now(),
-      })
-    }
-    
-    // Always resolve with reference price for chart marker
-    resolveRound(outcome, payout, pending.referencePrice)
-  }, [adjustBalance, addBetRecord, resolveRound])
-  
-  // Main game loop
-  const tick = useCallback(() => {
-    const now = Date.now()
-    const roundNumber = getRoundNumber()
-    const timeRemaining = getTimeRemaining()
-    
-    setTimeRemaining(timeRemaining)
-    
-    // Check for round transition
-    if (roundNumber !== lastRoundRef.current) {
-      const prevRound = lastRoundRef.current
-      lastRoundRef.current = roundNumber
-      
-      // Only process if this isn't the initial load
-      if (prevRound > 0) {
-        const gameState = useGameStore.getState()
-        const userState = useUserStore.getState()
-        const priceState = usePriceStore.getState()
-        
-        // If there was a pending round, resolve it now
-        if (gameState.pendingRound) {
-          resolvePendingRound()
-        }
-        
-        // Move current bets to pending for resolution next round
-        if (userState.currentBet || gameState.currentPools.up > 0 || gameState.currentPools.down > 0) {
+      // Only process if not initial load
+      if (previousEpoch > 0) {
+        // Move current bet to pending for next epoch resolution
+        if (currentBet) {
           setPendingRound({
-            roundNumber: prevRound,
-            referencePrice: priceState.currentPrice,
-            userBet: userState.currentBet ? {
-              direction: userState.currentBet.direction,
-              amount: userState.currentBet.amount,
-              timestamp: now,
-            } : null,
-            pools: { ...gameState.currentPools },
+            roundNumber: previousEpoch,
+            referencePrice: referencePrice || currentPrice,
+            userBet: {
+              direction: currentBet.direction,
+              amount: currentBet.amount,
+              timestamp: Date.now(),
+            },
+            pools: { ...currentPools },
           })
-          
           clearCurrentBet()
         }
         
-        // Reset for new round
-        resetPools()
-        setRound(roundNumber)
-        setRoundStartTime(getRoundStartTime())
-        setPhase('betting')
-        
-        // Simulate other players betting
+        // Simulate other players betting on new epoch
         simulateOtherBets()
       } else {
-        // Initial load
-        setRound(roundNumber)
-        setRoundStartTime(getRoundStartTime())
+        // Initial load - just simulate some bets
         simulateOtherBets()
       }
     }
-    
-    // Update phase based on time remaining
-    if (timeRemaining < 500) {
-      setPhase('resolving')
-    } else if (timeRemaining < 2000) {
-      setPhase('locked')
-    } else {
-      setPhase('betting')
-    }
-    
-    animationFrameRef.current = requestAnimationFrame(tick)
-  }, [
-    setTimeRemaining,
-    setRound,
-    setPhase,
-    setRoundStartTime,
-    setPendingRound,
-    resetPools,
-    clearCurrentBet,
-    simulateOtherBets,
-    resolvePendingRound,
-  ])
+  }, [currentRound, currentBet, currentPrice, referencePrice, currentPools, clearCurrentBet, setPendingRound, simulateOtherBets])
   
+  // Process win/loss results
   useEffect(() => {
-    // Initialize
-    lastRoundRef.current = getRoundNumber()
-    setRound(lastRoundRef.current)
-    setRoundStartTime(getRoundStartTime())
-    simulateOtherBets()
-    
-    // Start the loop
-    animationFrameRef.current = requestAnimationFrame(tick)
-    
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
+    if (showResult && lastOutcome !== null) {
+      // Record the bet in history
+      const lastResult = epochHistory[epochHistory.length - 1]
+      if (lastResult) {
+        addBetRecord({
+          roundNumber: lastResult.epoch,
+          direction: lastOutcome,
+          amount: lastPayout === 0 ? 0 : (lastPayout || 0) / 1.9, // Approximate original bet
+          outcome: lastOutcome,
+          payout: lastPayout || 0,
+          timestamp: Date.now(),
+        })
+        
+        // Add winnings to balance
+        if (lastPayout && lastPayout > 0) {
+          adjustBalance(lastPayout)
+        }
       }
+      
+      // Clear result after delay
+      const timer = setTimeout(clearResult, 2500)
+      return () => clearTimeout(timer)
     }
-  }, [tick, setRound, setRoundStartTime, simulateOtherBets])
+  }, [showResult, lastOutcome, lastPayout, epochHistory, addBetRecord, adjustBalance, clearResult])
   
   return {
     currentRound,
-    pendingRound,
-    timeRemaining: useGameStore((state) => state.timeRemaining),
-    phase: useGameStore((state) => state.roundPhase),
+    timeRemaining,
+    phase: roundPhase,
+    referencePrice,
   }
 }
-

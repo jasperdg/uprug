@@ -12,25 +12,27 @@ import { usePriceStore } from '../../stores/priceStore'
 import { useGameStore } from '../../stores/gameStore'
 import { formatPrice, formatPercentage, calculatePercentChange } from '../../utils/formatters'
 
-// Memoized chart to prevent unnecessary re-renders
+// Memoized chart component
 const MemoizedLineChart = memo(function MemoizedLineChart({
   chartData,
   minPrice,
   maxPrice,
   isUp,
-  pendingRound,
+  referencePrice,
   resolvedMarker,
   resolvedMarkerIndex,
   markerColor,
+  epochBoundaries,
 }: {
-  chartData: Array<{ index: number; price: number }>
+  chartData: Array<{ index: number; price: number; epoch?: number }>
   minPrice: number
   maxPrice: number
   isUp: boolean
-  pendingRound: { referencePrice: number } | null
+  referencePrice: number | null
   resolvedMarker: { referencePrice: number; outcome: string } | null
   resolvedMarkerIndex: number
   markerColor: string
+  epochBoundaries: number[]
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -41,10 +43,22 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
         <XAxis dataKey="index" hide />
         <YAxis domain={[minPrice, maxPrice]} hide />
         
-        {/* Reference price horizontal line (when waiting for outcome) */}
-        {pendingRound && (
+        {/* Epoch boundary vertical lines */}
+        {epochBoundaries.map((index, i) => (
           <ReferenceLine
-            y={pendingRound.referencePrice}
+            key={`epoch-${i}-${index}`}
+            x={index}
+            stroke="var(--text-secondary)"
+            strokeDasharray="3 3"
+            strokeOpacity={0.4}
+            strokeWidth={1}
+          />
+        ))}
+        
+        {/* Reference price horizontal line (current epoch reference) */}
+        {referencePrice && (
+          <ReferenceLine
+            y={referencePrice}
             stroke="var(--text-primary)"
             strokeDasharray="4 4"
             strokeOpacity={0.3}
@@ -63,7 +77,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           />
         )}
         
-        {/* Resolved marker dot - colored based on outcome */}
+        {/* Resolved marker dot */}
         {resolvedMarker && resolvedMarkerIndex >= 0 && (
           <ReferenceDot
             x={resolvedMarkerIndex}
@@ -92,23 +106,38 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
 
 export function PriceChart() {
   const { priceHistory, currentPrice, previousPrice } = usePriceStore()
-  const { pendingRound, resolvedMarker } = useGameStore()
+  const { referencePrice, resolvedMarker } = useGameStore()
   
   const percentChange = useMemo(() => {
-    if (pendingRound?.referencePrice) {
-      return calculatePercentChange(currentPrice, pendingRound.referencePrice)
+    if (referencePrice) {
+      return calculatePercentChange(currentPrice, referencePrice)
     }
     return calculatePercentChange(currentPrice, previousPrice)
-  }, [currentPrice, previousPrice, pendingRound])
+  }, [currentPrice, previousPrice, referencePrice])
   
   const isUp = percentChange >= 0
   
-  // Transform data for chart - only recalculate when history length changes significantly
-  const chartData = useMemo(() => {
-    return priceHistory.map((point, index) => ({
-      index,
-      price: point.price,
-    }))
+  // Transform data and find epoch boundaries
+  const { chartData, epochBoundaries } = useMemo(() => {
+    const data: Array<{ index: number; price: number; epoch?: number }> = []
+    const boundaries: number[] = []
+    let lastEpoch: number | undefined = undefined
+    
+    priceHistory.forEach((point, index) => {
+      data.push({
+        index,
+        price: point.price,
+        epoch: point.epoch,
+      })
+      
+      // Detect epoch change
+      if (point.epoch !== undefined && lastEpoch !== undefined && point.epoch !== lastEpoch) {
+        boundaries.push(index)
+      }
+      lastEpoch = point.epoch
+    })
+    
+    return { chartData: data, epochBoundaries: boundaries }
   }, [priceHistory])
   
   // Find index for resolved marker
@@ -118,7 +147,6 @@ export function PriceChart() {
     let bestIndex = -1
     let minDiff = Infinity
     
-    // Only check first half of data (marker should be older)
     const checkLength = Math.min(chartData.length, Math.floor(chartData.length / 2) + 10)
     for (let i = 0; i < checkLength; i++) {
       const diff = Math.abs(chartData[i].price - resolvedMarker.referencePrice)
@@ -168,10 +196,10 @@ export function PriceChart() {
       </div>
       
       {/* Reference price indicator */}
-      {pendingRound && (
+      {referencePrice && (
         <div className="absolute top-14 left-4 text-xs text-text-secondary flex items-center gap-2">
           <span className="w-2 h-2 rounded-full bg-text-primary animate-pulse" />
-          <span>Ref: ${formatPrice(pendingRound.referencePrice)}</span>
+          <span>Ref: ${formatPrice(referencePrice)}</span>
         </div>
       )}
       
@@ -182,10 +210,11 @@ export function PriceChart() {
           minPrice={minPrice}
           maxPrice={maxPrice}
           isUp={isUp}
-          pendingRound={pendingRound}
+          referencePrice={referencePrice}
           resolvedMarker={resolvedMarker}
           resolvedMarkerIndex={resolvedMarkerIndex}
           markerColor={markerColor}
+          epochBoundaries={epochBoundaries}
         />
       </div>
       

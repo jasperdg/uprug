@@ -1,18 +1,23 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { usePriceStore } from '../stores/priceStore'
+import { useGameStore } from '../stores/gameStore'
 
-// Connect to our relay server instead of Pyth directly
-// In production, this would be your deployed server URL
+// Connect to our relay server
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8080'
 const RECONNECT_DELAY = 3000
-const THROTTLE_MS = 100 // Update 10 times per second for smooth updates
 
 export function useBinanceWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
-  const lastUpdateRef = useRef<number>(0)
   
-  const { addPricePoint, setConnected } = usePriceStore()
+  const { addPricePoint, setConnected, initializeHistory } = usePriceStore()
+  const { 
+    setTimeRemaining, 
+    setRound, 
+    setReferencePrice,
+    addEpochResult,
+    initializeEpochHistory
+  } = useGameStore()
   
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -29,30 +34,75 @@ export function useBinanceWebSocket() {
       }
       
       ws.onmessage = (event) => {
-        const now = Date.now()
-        
         try {
           const data = JSON.parse(event.data)
           
-          // Handle price updates from our server
-          if (data.type === 'price') {
-            // Throttle updates
-            if (now - lastUpdateRef.current < THROTTLE_MS) {
-              return
-            }
-            lastUpdateRef.current = now
-            
-            const price = data.price
-            const timestamp = data.timestamp || now
-            
-            if (!isNaN(price) && price > 0) {
-              addPricePoint({ price, timestamp })
-            }
-          }
-          
-          // Handle status updates
-          if (data.type === 'status') {
-            setConnected(data.connected)
+          switch (data.type) {
+            case 'init':
+              // Initialize with server state
+              if (data.priceHistory) {
+                initializeHistory(data.priceHistory)
+              }
+              if (data.epochHistory) {
+                initializeEpochHistory(data.epochHistory)
+              }
+              if (data.currentEpoch) {
+                setRound(data.currentEpoch)
+              }
+              if (data.referencePrice) {
+                setReferencePrice(data.referencePrice)
+              }
+              if (data.timeRemaining) {
+                setTimeRemaining(data.timeRemaining)
+              }
+              setConnected(data.pythConnected)
+              break
+              
+            case 'price':
+              // Regular price update
+              addPricePoint({
+                price: data.price,
+                timestamp: data.timestamp,
+                epoch: data.epoch
+              })
+              if (data.timeRemaining !== undefined) {
+                setTimeRemaining(data.timeRemaining)
+              }
+              break
+              
+            case 'time':
+              // Time sync update
+              setTimeRemaining(data.timeRemaining)
+              if (data.epoch) {
+                setRound(data.epoch)
+              }
+              break
+              
+            case 'epoch_start':
+              // New epoch started
+              setRound(data.epoch)
+              setReferencePrice(data.referencePrice)
+              setTimeRemaining(data.timeRemaining)
+              break
+              
+            case 'epoch_end':
+              // Epoch ended with result
+              addEpochResult({
+                epoch: data.epoch,
+                endPrice: data.endPrice,
+                outcome: data.outcome,
+                previousPrice: data.previousPrice,
+                timestamp: data.timestamp
+              })
+              break
+              
+            case 'status':
+              setConnected(data.connected)
+              break
+              
+            case 'heartbeat':
+              // Keep alive
+              break
           }
         } catch (e) {
           console.error('Error parsing server data:', e)
@@ -64,7 +114,6 @@ export function useBinanceWebSocket() {
         setConnected(false)
         wsRef.current = null
         
-        // Attempt to reconnect
         reconnectTimeoutRef.current = window.setTimeout(() => {
           connect()
         }, RECONNECT_DELAY)
@@ -78,12 +127,20 @@ export function useBinanceWebSocket() {
       console.error('Failed to create WebSocket:', error)
       setConnected(false)
       
-      // Attempt to reconnect
       reconnectTimeoutRef.current = window.setTimeout(() => {
         connect()
       }, RECONNECT_DELAY)
     }
-  }, [addPricePoint, setConnected])
+  }, [
+    addPricePoint, 
+    setConnected, 
+    initializeHistory,
+    setTimeRemaining,
+    setRound,
+    setReferencePrice,
+    addEpochResult,
+    initializeEpochHistory
+  ])
   
   const disconnect = useCallback(() => {
     if (reconnectTimeoutRef.current) {

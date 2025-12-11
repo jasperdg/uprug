@@ -3,6 +3,8 @@ import { create } from 'zustand'
 export interface PricePoint {
   price: number
   timestamp: number
+  epoch?: number
+  isEpochEnd?: boolean
 }
 
 interface PriceState {
@@ -16,10 +18,11 @@ interface PriceState {
   setPrice: (price: number) => void
   addPricePoint: (point: PricePoint) => void
   setConnected: (connected: boolean) => void
+  initializeHistory: (history: PricePoint[]) => void
   clearHistory: () => void
 }
 
-const MAX_HISTORY_POINTS = 100 // ~10 seconds of data at 10 updates/second
+const MAX_HISTORY_POINTS = 100
 
 export const usePriceStore = create<PriceState>((set, get) => ({
   currentPrice: 0,
@@ -39,7 +42,9 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   
   addPricePoint: (point: PricePoint) => {
     const { priceHistory, currentPrice } = get()
+    
     const newHistory = [...priceHistory, point].slice(-MAX_HISTORY_POINTS)
+    
     set({
       priceHistory: newHistory,
       previousPrice: currentPrice,
@@ -52,8 +57,16 @@ export const usePriceStore = create<PriceState>((set, get) => ({
     set({ isConnected: connected })
   },
   
+  initializeHistory: (history: PricePoint[]) => {
+    const lastPoint = history[history.length - 1]
+    set({
+      priceHistory: history.slice(-MAX_HISTORY_POINTS),
+      currentPrice: lastPoint?.price || 0,
+      lastUpdate: lastPoint?.timestamp || Date.now(),
+    })
+  },
+  
   clearHistory: () => {
     set({ priceHistory: [] })
   },
 }))
-

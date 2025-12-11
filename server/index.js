@@ -5,33 +5,56 @@ const WebSocket = require('ws');
 const PORT = process.env.PORT || 8080;
 const PYTH_WS_URL = 'wss://hermes.pyth.network/ws';
 const SOL_USD_FEED_ID = '0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d';
+const EPOCH_DURATION = 10000; // 10 seconds
 
 // State
 let pythWs = null;
-let currentPrice = null;
-let lastPriceUpdate = null;
 let reconnectTimeout = null;
+
+// Price state
+let currentPrice = null;
+let lastPriceTimestamp = null;
+
+// Epoch state
+let currentEpoch = Math.floor(Date.now() / EPOCH_DURATION);
+let epochStartPrice = null;
+let lastEpochEndPrice = null;
+let epochHistory = []; // Store recent epoch results
+const MAX_EPOCH_HISTORY = 20;
+
+// Price history for chart (last ~30 seconds)
+let priceHistory = [];
+const MAX_PRICE_HISTORY = 300; // 10 updates/sec * 30 seconds
+
+// Get current epoch number
+function getEpochNumber() {
+  return Math.floor(Date.now() / EPOCH_DURATION);
+}
+
+// Get time remaining in current epoch
+function getTimeRemaining() {
+  return EPOCH_DURATION - (Date.now() % EPOCH_DURATION);
+}
 
 // Create HTTP server for health checks
 const server = http.createServer((req, res) => {
-  // Health check endpoint
   if (req.url === '/' || req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({
       status: 'ok',
       pythConnected: pythWs && pythWs.readyState === WebSocket.OPEN,
-      currentPrice: currentPrice,
-      lastUpdate: lastPriceUpdate,
+      currentPrice,
+      currentEpoch,
+      timeRemaining: getTimeRemaining(),
       clients: wss.clients.size
     }));
     return;
   }
-  
   res.writeHead(404);
   res.end('Not found');
 });
 
-// Create WebSocket server attached to HTTP server
+// Create WebSocket server
 const wss = new WebSocket.Server({ server });
 
 // Broadcast to all connected clients
@@ -43,6 +66,85 @@ function broadcast(data) {
     }
   });
 }
+
+// Process epoch end
+function processEpochEnd() {
+  if (currentPrice === null) return;
+  
+  const endedEpoch = currentEpoch;
+  const epochEndPrice = currentPrice;
+  
+  // Determine outcome (up or down from previous epoch)
+  let outcome = null;
+  if (lastEpochEndPrice !== null) {
+    outcome = epochEndPrice > lastEpochEndPrice ? 'up' : 'down';
+  }
+  
+  // Create epoch result
+  const epochResult = {
+    epoch: endedEpoch,
+    startPrice: epochStartPrice,
+    endPrice: epochEndPrice,
+    outcome,
+    timestamp: Date.now()
+  };
+  
+  // Store in history
+  epochHistory.push(epochResult);
+  if (epochHistory.length > MAX_EPOCH_HISTORY) {
+    epochHistory.shift();
+  }
+  
+  // Mark epoch boundary in price history
+  if (priceHistory.length > 0) {
+    priceHistory[priceHistory.length - 1].isEpochEnd = true;
+    priceHistory[priceHistory.length - 1].epochResult = epochResult;
+  }
+  
+  // Broadcast epoch end to all clients
+  broadcast({
+    type: 'epoch_end',
+    epoch: endedEpoch,
+    endPrice: epochEndPrice,
+    outcome,
+    previousPrice: lastEpochEndPrice,
+    timestamp: Date.now()
+  });
+  
+  console.log(`Epoch ${endedEpoch} ended: $${epochEndPrice.toFixed(2)} (${outcome || 'first'})`);
+  
+  // Update state for next epoch
+  lastEpochEndPrice = epochEndPrice;
+  currentEpoch = getEpochNumber();
+  epochStartPrice = currentPrice;
+  
+  // Broadcast new epoch start
+  broadcast({
+    type: 'epoch_start',
+    epoch: currentEpoch,
+    referencePrice: lastEpochEndPrice,
+    timeRemaining: getTimeRemaining(),
+    timestamp: Date.now()
+  });
+}
+
+// Epoch timer - check every 50ms for precision
+setInterval(() => {
+  const nowEpoch = getEpochNumber();
+  
+  if (nowEpoch > currentEpoch) {
+    processEpochEnd();
+  }
+  
+  // Broadcast time update every 100ms
+  if (Date.now() % 100 < 50) {
+    broadcast({
+      type: 'time',
+      epoch: currentEpoch,
+      timeRemaining: getTimeRemaining()
+    });
+  }
+}, 50);
 
 // Connect to Pyth Hermes
 function connectToPyth() {
@@ -57,7 +159,6 @@ function connectToPyth() {
   pythWs.on('open', () => {
     console.log('Connected to Pyth Hermes');
     
-    // Subscribe to SOL/USD price feed
     pythWs.send(JSON.stringify({
       type: 'subscribe',
       ids: [SOL_USD_FEED_ID]
@@ -68,7 +169,6 @@ function connectToPyth() {
     try {
       const data = JSON.parse(msg.toString());
       
-      // Handle price update messages
       if (data.type === 'price_update' && data.price_feed) {
         const priceFeed = data.price_feed;
         
@@ -78,16 +178,35 @@ function connectToPyth() {
           const price = rawPrice * Math.pow(10, expo);
           
           if (!isNaN(price) && price > 0) {
-            currentPrice = price;
-            lastPriceUpdate = Date.now();
+            const timestamp = Date.now();
             
-            // Broadcast to all clients
+            // Update current price
+            currentPrice = price;
+            lastPriceTimestamp = timestamp;
+            
+            // Set epoch start price if not set
+            if (epochStartPrice === null) {
+              epochStartPrice = price;
+            }
+            
+            // Add to price history
+            const pricePoint = {
+              price,
+              timestamp,
+              epoch: currentEpoch
+            };
+            priceHistory.push(pricePoint);
+            if (priceHistory.length > MAX_PRICE_HISTORY) {
+              priceHistory.shift();
+            }
+            
+            // Broadcast price to all clients
             broadcast({
               type: 'price',
-              price: price,
-              timestamp: priceFeed.price.publish_time 
-                ? priceFeed.price.publish_time * 1000 
-                : Date.now()
+              price,
+              timestamp,
+              epoch: currentEpoch,
+              timeRemaining: getTimeRemaining()
             });
           }
         }
@@ -100,8 +219,6 @@ function connectToPyth() {
   pythWs.on('close', () => {
     console.log('Disconnected from Pyth Hermes');
     pythWs = null;
-    
-    // Reconnect after delay
     reconnectTimeout = setTimeout(connectToPyth, 3000);
   });
 
@@ -116,20 +233,16 @@ wss.on('connection', (ws, req) => {
   const clientIp = req.socket.remoteAddress;
   console.log(`Client connected: ${clientIp} (Total: ${wss.clients.size})`);
   
-  // Send current price immediately if available
-  if (currentPrice !== null) {
-    ws.send(JSON.stringify({
-      type: 'price',
-      price: currentPrice,
-      timestamp: lastPriceUpdate
-    }));
-  }
-  
-  // Send connection status
+  // Send initial state with full price history
   ws.send(JSON.stringify({
-    type: 'status',
-    connected: pythWs && pythWs.readyState === WebSocket.OPEN,
-    clients: wss.clients.size
+    type: 'init',
+    currentPrice,
+    currentEpoch,
+    timeRemaining: getTimeRemaining(),
+    referencePrice: lastEpochEndPrice,
+    priceHistory: priceHistory.slice(-100), // Last 100 points
+    epochHistory: epochHistory.slice(-10), // Last 10 epochs
+    pythConnected: pythWs && pythWs.readyState === WebSocket.OPEN
   }));
 
   ws.on('close', () => {
@@ -145,12 +258,10 @@ wss.on('connection', (ws, req) => {
 server.listen(PORT, () => {
   console.log(`Server started on port ${PORT}`);
   console.log(`Health check: http://localhost:${PORT}/health`);
-  
-  // Start Pyth connection
   connectToPyth();
 });
 
-// Heartbeat to keep connections alive
+// Heartbeat
 setInterval(() => {
   broadcast({
     type: 'heartbeat',
@@ -162,15 +273,8 @@ setInterval(() => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
-  
-  if (reconnectTimeout) {
-    clearTimeout(reconnectTimeout);
-  }
-  
-  if (pythWs) {
-    pythWs.close();
-  }
-  
+  if (reconnectTimeout) clearTimeout(reconnectTimeout);
+  if (pythWs) pythWs.close();
   wss.close(() => {
     server.close(() => {
       console.log('Server closed');

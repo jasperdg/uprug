@@ -36,8 +36,8 @@ function App() {
   
   return (
     <GameLayout>
-      {/* Price Chart - 40% of available space */}
-      <div className="flex-[4] min-h-0">
+      {/* Price Chart - 50% of available space */}
+      <div className="flex-1 min-h-0">
         <PriceChart />
       </div>
       
@@ -48,7 +48,7 @@ function App() {
       <PoolDisplay />
       
       {/* Betting Panel - takes remaining space */}
-      <div className="flex-[6] min-h-0 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         <BettingPanel />
       </div>
     </GameLayout>
