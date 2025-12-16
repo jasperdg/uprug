@@ -155,13 +155,16 @@ export function PriceChart() {
     
     const now = Date.now()
     const lastTimestamp = data.length > 0 ? data[data.length - 1].timestamp : now
+    const firstTimestamp = data.length > 0 ? data[0].timestamp : now
     
-    // Calculate domain: show data centered with current time in middle
-    // Show ~20 seconds of history and ~20 seconds of future
-    const timeWindow = 40000 // 40 seconds total
-    const halfWindow = timeWindow / 2
-    const domainStart = lastTimestamp - halfWindow
-    const domainEnd = lastTimestamp + halfWindow
+    // Calculate domain: data fills left side, future space on right
+    // Show all available history on left, and equal future space on right
+    const dataSpan = lastTimestamp - firstTimestamp
+    const futureSpace = Math.max(dataSpan, 20000) // At least 20 seconds of future, or match data span
+    
+    // Domain starts from first data point (fills left), extends into future (right)
+    const domainStart = firstTimestamp
+    const domainEnd = lastTimestamp + futureSpace
     const domain: [number, number] = [domainStart, domainEnd]
     
     // Convert epoch timestamps to epoch lines
