@@ -65,34 +65,39 @@ export function useBinanceWebSocket() {
     if (now - lastFrameRef.current < FRAME_INTERVAL) return
     lastFrameRef.current = now
     
-    // Process epoch end first (marks last point before adding new ones)
-    if (pendingEpochEndRef.current) {
-      const data = pendingEpochEndRef.current
-      markLastPointAsEpochEnd()
-      addEpochResult({
-        epoch: data.epoch,
-        endPrice: data.endPrice,
-        referencePrice: data.referencePrice,
-        referenceIndex: data.referenceIndex,
-        outcome: data.outcome,
-        timestamp: data.timestamp
-      })
-      if (data.epochTimestamps) {
-        setEpochTimestamps(data.epochTimestamps)
-      }
+    // Process epoch events in next animation frame to avoid blocking chart
+    if (pendingEpochEndRef.current || pendingEpochStartRef.current) {
+      const epochEndData = pendingEpochEndRef.current
+      const epochStartData = pendingEpochStartRef.current
       pendingEpochEndRef.current = null
-    }
-    
-    // Process epoch start
-    if (pendingEpochStartRef.current) {
-      const data = pendingEpochStartRef.current
-      setRound(data.epoch)
-      setReferencePrice(data.referencePrice)
-      setTimeRemaining(data.timeRemaining)
-      if (data.epochTimestamps) {
-        setEpochTimestamps(data.epochTimestamps)
-      }
       pendingEpochStartRef.current = null
+      
+      // Defer epoch state updates to next frame
+      requestAnimationFrame(() => {
+        if (epochEndData) {
+          markLastPointAsEpochEnd()
+          addEpochResult({
+            epoch: epochEndData.epoch,
+            endPrice: epochEndData.endPrice,
+            referencePrice: epochEndData.referencePrice,
+            referenceIndex: epochEndData.referenceIndex,
+            outcome: epochEndData.outcome,
+            timestamp: epochEndData.timestamp
+          })
+          if (epochEndData.epochTimestamps) {
+            setEpochTimestamps(epochEndData.epochTimestamps)
+          }
+        }
+        
+        if (epochStartData) {
+          setRound(epochStartData.epoch)
+          setReferencePrice(epochStartData.referencePrice)
+          setTimeRemaining(epochStartData.timeRemaining)
+          if (epochStartData.epochTimestamps) {
+            setEpochTimestamps(epochStartData.epochTimestamps)
+          }
+        }
+      })
     }
     
     // If we have pending price data, use it

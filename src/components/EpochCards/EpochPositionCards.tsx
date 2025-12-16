@@ -94,29 +94,33 @@ export function EpochPositionCards() {
       hasTriggeredExplosion.current = true
       
       if (lastPayout && lastPayout > 0 && isFinite(lastPayout)) {
-        // Delay state change to avoid render issues
-        setTimeout(() => {
+        // Use requestAnimationFrame to defer visual updates
+        requestAnimationFrame(() => {
           setExplosionState('win')
-        }, 0)
-        try {
-          playWin()
-        } catch (e) {
-          console.error('Win sound error:', e)
-        }
-        // Confetti burst
-        try {
-          confetti({
-            particleCount: 100,
-            spread: 70,
-            origin: { y: 0.4 },
-            colors: ['#00d26a', '#ffffff', '#00ff88'],
+          try {
+            playWin()
+          } catch (e) {
+            console.error('Win sound error:', e)
+          }
+          // Defer confetti to next frame
+          requestAnimationFrame(() => {
+            try {
+              confetti({
+                particleCount: 100,
+                spread: 70,
+                origin: { y: 0.4 },
+                colors: ['#00d26a', '#ffffff', '#00ff88'],
+              })
+            } catch (e) {
+              console.error('Confetti error:', e)
+            }
           })
-        } catch (e) {
-          console.error('Confetti error:', e)
-        }
+        })
       } else if (lastPayout === 0) {
-        setExplosionState('loss')
-        playLoss()
+        requestAnimationFrame(() => {
+          setExplosionState('loss')
+          playLoss()
+        })
       }
       
       // Reset explosion state after animation

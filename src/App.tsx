@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { GameLayout } from './components/Layout/GameLayout'
 import { PriceChart } from './components/PriceChart/PriceChart'
 import { EpochPositionCards } from './components/EpochCards/EpochPositionCards'
+import { TradeHistory } from './components/TradeHistory/TradeHistory'
 import { useBinanceWebSocket } from './hooks/useBinanceWebSocket'
 import { useGameLoop } from './hooks/useGameLoop'
 import { useSoundEffects } from './hooks/useSoundEffects'
@@ -40,8 +41,13 @@ function App() {
       </div>
       
       {/* Epoch Position Cards */}
-      <div className="flex-shrink-0 overflow-y-auto max-h-[55vh]">
+      <div className="flex-shrink-0 overflow-y-auto max-h-[50vh]">
         <EpochPositionCards />
+      </div>
+      
+      {/* Trade History - Expandable */}
+      <div className="flex-shrink-0">
+        <TradeHistory />
       </div>
     </GameLayout>
   )
