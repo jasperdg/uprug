@@ -62,13 +62,21 @@ export function useBinanceWebSocket() {
     setEpochTimestamps,
     addEpochResult,
     initializeEpochHistory,
-    handleEpochTransition,
-    currentPools
+    handleEpochTransition
   } = useGameStore()
   
-  // Get current bet directly to pass to handleEpochTransition
+  // Use refs for values we need to read but shouldn't trigger reconnection
+  const currentBetRef = useRef<{ direction: 'up' | 'down'; amount: number } | null>(null)
+  const currentPoolsRef = useRef<{ up: number; down: number }>({ up: 0, down: 0 })
+  
+  // Subscribe to store changes and update refs (doesn't cause re-render of hook)
   const currentBet = useUserStore((s) => s.currentBet)
+  const currentPools = useGameStore((s) => s.currentPools)
   const clearCurrentBet = useUserStore((s) => s.clearCurrentBet)
+  
+  // Keep refs in sync with store values
+  currentBetRef.current = currentBet
+  currentPoolsRef.current = currentPools
   
   // Run at ~70fps - flush all pending updates in batched manner
   const tick = useCallback(() => {
@@ -85,9 +93,9 @@ export function useBinanceWebSocket() {
       pendingEpochEndRef.current = null
       pendingEpochStartRef.current = null
       
-      // Capture current bet before clearing (to pass to epoch transition)
-      const betToResolve = currentBet
-      const poolsSnapshot = { ...currentPools }
+      // Capture current bet before clearing (read from refs to avoid dependency issues)
+      const betToResolve = currentBetRef.current
+      const poolsSnapshot = { ...currentPoolsRef.current }
       
       // Clear the bet immediately when epoch ends
       if (epochEndData && betToResolve) {
@@ -140,7 +148,7 @@ export function useBinanceWebSocket() {
       lastTimeUpdateRef.current = now
       pendingTimeRef.current = null
     }
-  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, handleEpochTransition, currentBet, currentPools, clearCurrentBet])
+  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, handleEpochTransition, clearCurrentBet])
   
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
