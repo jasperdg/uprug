@@ -11,8 +11,10 @@ import { usePriceStore } from '../../stores/priceStore'
 import { useGameStore } from '../../stores/gameStore'
 import { formatPrice, formatPercentage, calculatePercentChange } from '../../utils/formatters'
 
-const EPOCH_DURATION = 10000 // 10 seconds
-const FUTURE_EPOCHS_TO_SHOW = 2
+interface EpochLine {
+  timestamp: number
+  isPast: boolean
+}
 
 // Memoized chart component
 const MemoizedLineChart = memo(function MemoizedLineChart({
@@ -23,24 +25,22 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   isUp,
   referencePrice,
   resolvedMarker,
-  epochBoundaries,
-  futureEpochBoundaries,
-  lastDataIndex,
+  epochLines,
 }: {
-  chartData: Array<{ index: number; price: number }>
+  chartData: Array<{ timestamp: number; price: number }>
   minPrice: number
   maxPrice: number
   xDomain: [number, number]
   isUp: boolean
   referencePrice: number | null
   resolvedMarker: { referencePrice: number; referenceIndex: number; outcome: string } | null
-  epochBoundaries: number[]
-  futureEpochBoundaries: number[]
-  lastDataIndex: number
+  epochLines: EpochLine[]
 }) {
   const markerColor = resolvedMarker?.outcome === 'up' 
     ? 'var(--accent-up)' 
     : 'var(--accent-down)'
+
+  const lastDataPoint = chartData[chartData.length - 1]
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -49,7 +49,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
         margin={{ top: 5, right: 10, left: 10, bottom: 5 }}
       >
         <XAxis 
-          dataKey="index" 
+          dataKey="timestamp" 
           hide 
           domain={xDomain}
           type="number"
@@ -57,26 +57,14 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
         />
         <YAxis domain={[minPrice, maxPrice]} hide />
         
-        {/* Past epoch boundary vertical lines */}
-        {epochBoundaries.map((index, i) => (
+        {/* Epoch boundary vertical lines from server timestamps */}
+        {epochLines.map((line, i) => (
           <ReferenceLine
-            key={`epoch-past-${i}-${index}`}
-            x={index}
+            key={`epoch-${i}-${line.timestamp}`}
+            x={line.timestamp}
             stroke="var(--text-secondary)"
             strokeDasharray="3 3"
-            strokeOpacity={0.4}
-            strokeWidth={1}
-          />
-        ))}
-        
-        {/* Future epoch boundary vertical lines */}
-        {futureEpochBoundaries.map((index, i) => (
-          <ReferenceLine
-            key={`epoch-future-${i}-${index}`}
-            x={index}
-            stroke="var(--accent-highlight)"
-            strokeDasharray="6 4"
-            strokeOpacity={0.3 + (i === 0 ? 0.2 : 0)}
+            strokeOpacity={line.isPast ? 0.5 : 0.25}
             strokeWidth={1}
           />
         ))}
@@ -92,7 +80,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           />
         )}
         
-        {/* Resolved marker horizontal line (no dot - marked by epoch boundary) */}
+        {/* Resolved marker horizontal line */}
         {resolvedMarker && (
           <ReferenceLine
             y={resolvedMarker.referencePrice}
@@ -108,9 +96,10 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           dataKey="price"
           stroke={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
           strokeWidth={2}
-          dot={(props: { cx?: number; cy?: number; index?: number; payload?: { price: number } }) => {
+          dot={(props: { cx?: number; cy?: number; payload?: { timestamp: number; price: number } }) => {
             // Only render dot on the last data point
-            if (props.index !== lastDataIndex || !props.cx || !props.cy) return null
+            if (!props.payload || !props.cx || !props.cy) return null
+            if (props.payload.timestamp !== lastDataPoint?.timestamp) return null
             return (
               <circle
                 cx={props.cx}
@@ -132,7 +121,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
 
 export function PriceChart() {
   const { priceHistory, currentPrice, previousPrice } = usePriceStore()
-  const { referencePrice, resolvedMarker, timeRemaining } = useGameStore()
+  const { referencePrice, resolvedMarker, epochTimestamps } = useGameStore()
   
   const percentChange = useMemo(() => {
     if (referencePrice) {
@@ -143,52 +132,43 @@ export function PriceChart() {
   
   const isUp = percentChange >= 0
   
-  // Transform data and find epoch boundaries (using server-provided isEpochEnd flag)
-  const { chartData, epochBoundaries, futureEpochBoundaries, xDomain } = useMemo(() => {
-    const data: Array<{ index: number; price: number }> = []
-    const pastBoundaries: number[] = []
+  // Transform price history to use timestamps as x-axis
+  const { chartData, epochLines, xDomain } = useMemo(() => {
+    const data: Array<{ timestamp: number; price: number }> = []
     
-    // Add actual price data
-    priceHistory.forEach((point, index) => {
+    // Add actual price data with timestamps
+    priceHistory.forEach((point) => {
       data.push({
-        index,
+        timestamp: point.timestamp,
         price: point.price,
       })
-      
-      // Use server-provided epoch end marker
-      if (point.isEpochEnd) {
-        pastBoundaries.push(index)
-      }
     })
     
-    const actualLength = data.length
+    const now = Date.now()
+    const lastTimestamp = data.length > 0 ? data[data.length - 1].timestamp : now
     
-    // Calculate x domain to show future space (2x the data)
-    const futureSpace = Math.max(actualLength, 50)
-    const domain: [number, number] = [0, actualLength + futureSpace]
+    // Calculate domain: show data centered with current time in middle
+    // Show ~20 seconds of history and ~20 seconds of future
+    const timeWindow = 40000 // 40 seconds total
+    const halfWindow = timeWindow / 2
+    const domainStart = lastTimestamp - halfWindow
+    const domainEnd = lastTimestamp + halfWindow
+    const domain: [number, number] = [domainStart, domainEnd]
     
-    // Calculate future epoch boundaries
-    const futureBoundaries: number[] = []
-    if (actualLength > 0 && timeRemaining > 0) {
-      const pointsPerSecond = 10
-      const pointsPerEpoch = (EPOCH_DURATION / 1000) * pointsPerSecond
-      const pointsUntilNextEpoch = Math.round((timeRemaining / 1000) * pointsPerSecond)
-      
-      for (let i = 0; i < FUTURE_EPOCHS_TO_SHOW; i++) {
-        const futureIndex = actualLength + pointsUntilNextEpoch + (i * pointsPerEpoch)
-        if (futureIndex < domain[1]) {
-          futureBoundaries.push(Math.round(futureIndex))
-        }
-      }
-    }
+    // Convert epoch timestamps to epoch lines
+    const lines: EpochLine[] = epochTimestamps
+      .filter(ts => ts >= domainStart && ts <= domainEnd)
+      .map(ts => ({
+        timestamp: ts,
+        isPast: ts <= lastTimestamp
+      }))
     
     return { 
       chartData: data, 
-      epochBoundaries: pastBoundaries, 
-      futureEpochBoundaries: futureBoundaries,
+      epochLines: lines,
       xDomain: domain
     }
-  }, [priceHistory, timeRemaining])
+  }, [priceHistory, epochTimestamps])
   
   // Calculate Y-axis domain
   const [minPrice, maxPrice] = useMemo(() => {
@@ -202,8 +182,6 @@ export function PriceChart() {
     const padding = (max - min) * 0.15 || 0.1
     return [min - padding, max + padding]
   }, [chartData])
-  
-  const lastDataIndex = chartData.length - 1
   
   return (
     <div className="relative w-full h-full flex flex-col">
@@ -241,9 +219,7 @@ export function PriceChart() {
           isUp={isUp}
           referencePrice={referencePrice}
           resolvedMarker={resolvedMarker}
-          epochBoundaries={epochBoundaries}
-          futureEpochBoundaries={futureEpochBoundaries}
-          lastDataIndex={lastDataIndex}
+          epochLines={epochLines}
         />
       </div>
       

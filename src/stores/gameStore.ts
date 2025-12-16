@@ -39,6 +39,9 @@ interface GameState {
   timeRemaining: number
   referencePrice: number | null
   
+  // Epoch timestamps from server (for chart vertical lines)
+  epochTimestamps: number[]
+  
   // Epoch history from server
   epochHistory: EpochResult[]
   
@@ -61,6 +64,7 @@ interface GameState {
   setPhase: (phase: RoundPhase) => void
   setTimeRemaining: (time: number) => void
   setReferencePrice: (price: number | null) => void
+  setEpochTimestamps: (timestamps: number[]) => void
   addToPool: (direction: BetDirection, amount: number) => void
   resetPools: () => void
   setPendingRound: (pending: PendingRound | null) => void
@@ -76,6 +80,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   roundPhase: 'betting',
   timeRemaining: 10000,
   referencePrice: null,
+  epochTimestamps: [],
   epochHistory: [],
   currentPools: { up: 0, down: 0 },
   pendingRound: null,
@@ -94,6 +99,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   
   setReferencePrice: (price: number | null) => set({ referencePrice: price }),
+  
+  setEpochTimestamps: (timestamps: number[]) => set({ epochTimestamps: timestamps }),
   
   addToPool: (direction: BetDirection, amount: number) => {
     const { currentPools } = get()

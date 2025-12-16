@@ -23,9 +23,9 @@ let lastEpochEndPrice = null; // This is the settlement price from the previous 
 let epochHistory = []; // Store recent epoch results
 const MAX_EPOCH_HISTORY = 20;
 
-// Price history for chart (last ~30 seconds)
+// Price history for chart (last ~60 seconds)
 let priceHistory = [];
-const MAX_PRICE_HISTORY = 300; // 10 updates/sec * 30 seconds
+const MAX_PRICE_HISTORY = 600; // 10 updates/sec * 60 seconds
 
 // Get current epoch number
 function getEpochNumber() {
@@ -35,6 +35,30 @@ function getEpochNumber() {
 // Get time remaining in current epoch
 function getTimeRemaining() {
   return EPOCH_DURATION - (Date.now() % EPOCH_DURATION);
+}
+
+// Get epoch timestamps for current + next N epochs
+function getEpochTimestamps(count = 10) {
+  const now = Date.now();
+  const currentEpochStart = Math.floor(now / EPOCH_DURATION) * EPOCH_DURATION;
+  const timestamps = [];
+  
+  // Add past epochs that are in our price history
+  const oldestTimestamp = priceHistory.length > 0 ? priceHistory[0].timestamp : now;
+  let pastEpochStart = currentEpochStart - EPOCH_DURATION;
+  
+  // Go back to find epochs in history
+  while (pastEpochStart >= oldestTimestamp - EPOCH_DURATION) {
+    timestamps.unshift(pastEpochStart + EPOCH_DURATION); // epoch END timestamp
+    pastEpochStart -= EPOCH_DURATION;
+  }
+  
+  // Add current epoch end and future epochs
+  for (let i = 0; i <= count; i++) {
+    timestamps.push(currentEpochStart + ((i + 1) * EPOCH_DURATION)); // epoch END timestamps
+  }
+  
+  return timestamps;
 }
 
 // Create HTTP server for health checks
@@ -122,7 +146,8 @@ function processEpochEnd() {
     referencePrice: lastEpochEndPrice,
     referenceIndex: referenceIndex,
     outcome,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    epochTimestamps: getEpochTimestamps()
   });
   
   // Update state for next epoch
@@ -137,7 +162,8 @@ function processEpochEnd() {
     epoch: currentEpoch,
     referencePrice: lastEpochEndPrice,
     timeRemaining: getTimeRemaining(),
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    epochTimestamps: getEpochTimestamps()
   });
 }
 
@@ -247,15 +273,16 @@ wss.on('connection', (ws, req) => {
   const clientIp = req.socket.remoteAddress;
   console.log(`Client connected: ${clientIp} (Total: ${wss.clients.size})`);
   
-  // Send initial state with full price history
+  // Send initial state with full price history and epoch timestamps
   ws.send(JSON.stringify({
     type: 'init',
     currentPrice,
     currentEpoch,
     timeRemaining: getTimeRemaining(),
     referencePrice: lastEpochEndPrice,
-    priceHistory: priceHistory.slice(-100), // Last 100 points
+    priceHistory: priceHistory.slice(-400), // Last 400 points (~40 seconds)
     epochHistory: epochHistory.slice(-10), // Last 10 epochs
+    epochTimestamps: getEpochTimestamps(), // Current + next epochs
     pythConnected: pythWs && pythWs.readyState === WebSocket.OPEN
   }));
 

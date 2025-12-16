@@ -5,6 +5,7 @@ export interface PricePoint {
   timestamp: number
   epoch?: number
   isEpochEnd?: boolean
+  isExtrapolated?: boolean // For synthetic horizontal points
 }
 
 interface PriceState {
@@ -13,17 +14,19 @@ interface PriceState {
   priceHistory: PricePoint[]
   isConnected: boolean
   lastUpdate: number
+  lastRealUpdate: number // Track when we last got real data
   
   // Actions
   setPrice: (price: number) => void
   addPricePoint: (point: PricePoint) => void
+  addExtrapolatedPoint: () => void // Add horizontal point at current price
   setConnected: (connected: boolean) => void
   initializeHistory: (history: PricePoint[]) => void
   clearHistory: () => void
   markLastPointAsEpochEnd: () => void
 }
 
-const MAX_HISTORY_POINTS = 100
+const MAX_HISTORY_POINTS = 500 // ~40+ seconds at 10-12 updates/sec
 
 export const usePriceStore = create<PriceState>((set, get) => ({
   currentPrice: 0,
@@ -31,6 +34,7 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   priceHistory: [],
   isConnected: false,
   lastUpdate: 0,
+  lastRealUpdate: 0,
   
   setPrice: (price: number) => {
     const { currentPrice } = get()
@@ -43,15 +47,51 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   
   addPricePoint: (point: PricePoint) => {
     const { priceHistory, currentPrice } = get()
+    const now = Date.now()
     
-    // Store actual price data without modification
+    // Store actual price data
     const newHistory = [...priceHistory, point].slice(-MAX_HISTORY_POINTS)
     
     set({
       priceHistory: newHistory,
       previousPrice: currentPrice,
       currentPrice: point.price,
-      lastUpdate: point.timestamp,
+      lastUpdate: now,
+      lastRealUpdate: now,
+    })
+  },
+  
+  // Add a synthetic point at the current price (for horizontal line when no data)
+  addExtrapolatedPoint: () => {
+    const { priceHistory, currentPrice, lastRealUpdate } = get()
+    
+    // Only extrapolate if we have data and haven't received real data recently
+    if (priceHistory.length === 0 || currentPrice === 0) return
+    
+    const now = Date.now()
+    const timeSinceRealData = now - lastRealUpdate
+    
+    // Only add extrapolated points if no real data for 50ms+
+    if (timeSinceRealData < 50) return
+    
+    // Get the last point's epoch
+    const lastPoint = priceHistory[priceHistory.length - 1]
+    
+    // Don't extrapolate past epoch boundaries
+    if (lastPoint?.isEpochEnd) return
+    
+    const newPoint: PricePoint = {
+      price: currentPrice,
+      timestamp: now,
+      epoch: lastPoint?.epoch,
+      isExtrapolated: true,
+    }
+    
+    const newHistory = [...priceHistory, newPoint].slice(-MAX_HISTORY_POINTS)
+    
+    set({
+      priceHistory: newHistory,
+      lastUpdate: now,
     })
   },
   
@@ -61,10 +101,12 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   
   initializeHistory: (history: PricePoint[]) => {
     const lastPoint = history[history.length - 1]
+    const now = Date.now()
     set({
       priceHistory: history.slice(-MAX_HISTORY_POINTS),
       currentPrice: lastPoint?.price || 0,
-      lastUpdate: lastPoint?.timestamp || Date.now(),
+      lastUpdate: now,
+      lastRealUpdate: now,
     })
   },
   
@@ -76,7 +118,7 @@ export const usePriceStore = create<PriceState>((set, get) => ({
     const { priceHistory } = get()
     if (priceHistory.length === 0) return
     
-    // Mark the last point as epoch end (server determined this is the settlement tick)
+    // Mark the last point as epoch end
     const newHistory = [...priceHistory]
     newHistory[newHistory.length - 1] = {
       ...newHistory[newHistory.length - 1],

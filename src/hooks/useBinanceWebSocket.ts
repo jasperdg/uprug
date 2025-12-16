@@ -3,44 +3,81 @@ import { usePriceStore } from '../stores/priceStore'
 import { useGameStore } from '../stores/gameStore'
 
 // Connect to our relay server
-// In production (HTTPS), must use wss://
-// Falls back to ws://localhost:8080 for local development
 function getWebSocketUrl(): string {
-  // If explicitly set, use that
   if (import.meta.env.VITE_WS_URL) {
     return import.meta.env.VITE_WS_URL
   }
   
-  // In production on HTTPS, we need a secure WebSocket
   if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
-    // No server configured - show error
     console.error('No VITE_WS_URL configured for production. WebSocket will fail.')
-    return 'wss://your-server.railway.app' // Placeholder - will fail but with clear message
+    return 'wss://your-server.railway.app'
   }
   
-  // Local development
   return 'ws://localhost:8080'
 }
 
 const WS_URL = getWebSocketUrl()
 const RECONNECT_DELAY = 3000
+const FRAME_INTERVAL = 14 // ~70 FPS
+const TIME_UPDATE_INTERVAL = 100 // Time updates at 10 FPS
 
 export function useBinanceWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<number | null>(null)
   
-  const { addPricePoint, setConnected, initializeHistory, markLastPointAsEpochEnd } = usePriceStore()
+  // Throttling refs
+  const pendingPriceRef = useRef<{ price: number; timestamp: number; epoch: number } | null>(null)
+  const pendingTimeRef = useRef<{ timeRemaining: number; epoch?: number } | null>(null)
+  const lastFrameRef = useRef<number>(0)
+  const lastTimeUpdateRef = useRef<number>(0)
+  const frameIntervalRef = useRef<number | null>(null)
+  
+  const { addPricePoint, addExtrapolatedPoint, setConnected, initializeHistory, markLastPointAsEpochEnd } = usePriceStore()
   const { 
     setTimeRemaining, 
     setRound, 
     setReferencePrice,
+    setEpochTimestamps,
     addEpochResult,
     initializeEpochHistory
   } = useGameStore()
   
+  // Run at ~70fps - flush real data OR extrapolate horizontal line
+  const tick = useCallback(() => {
+    const now = Date.now()
+    
+    // Check if it's time for a new frame
+    if (now - lastFrameRef.current < FRAME_INTERVAL) return
+    lastFrameRef.current = now
+    
+    // If we have pending price data, use it
+    if (pendingPriceRef.current) {
+      addPricePoint(pendingPriceRef.current)
+      pendingPriceRef.current = null
+    } else {
+      // No new data - extrapolate horizontal line at current price
+      addExtrapolatedPoint()
+    }
+    
+    // Flush time update at lower frequency
+    if (pendingTimeRef.current && now - lastTimeUpdateRef.current >= TIME_UPDATE_INTERVAL) {
+      setTimeRemaining(pendingTimeRef.current.timeRemaining)
+      if (pendingTimeRef.current.epoch) {
+        setRound(pendingTimeRef.current.epoch)
+      }
+      lastTimeUpdateRef.current = now
+      pendingTimeRef.current = null
+    }
+  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound])
+  
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       return
+    }
+    
+    // Start frame loop at ~70fps
+    if (!frameIntervalRef.current) {
+      frameIntervalRef.current = window.setInterval(tick, FRAME_INTERVAL)
     }
     
     try {
@@ -58,12 +95,15 @@ export function useBinanceWebSocket() {
           
           switch (data.type) {
             case 'init':
-              // Initialize with server state
+              // Initialize immediately
               if (data.priceHistory) {
                 initializeHistory(data.priceHistory)
               }
               if (data.epochHistory) {
                 initializeEpochHistory(data.epochHistory)
+              }
+              if (data.epochTimestamps) {
+                setEpochTimestamps(data.epochTimestamps)
               }
               if (data.currentEpoch) {
                 setRound(data.currentEpoch)
@@ -78,37 +118,38 @@ export function useBinanceWebSocket() {
               break
               
             case 'price':
-              // Regular price update
-              addPricePoint({
+              // Queue price update
+              pendingPriceRef.current = {
                 price: data.price,
                 timestamp: data.timestamp,
                 epoch: data.epoch
-              })
+              }
               if (data.timeRemaining !== undefined) {
-                setTimeRemaining(data.timeRemaining)
+                pendingTimeRef.current = { 
+                  timeRemaining: data.timeRemaining,
+                  epoch: data.epoch
+                }
               }
               break
               
             case 'time':
-              // Time sync update
-              setTimeRemaining(data.timeRemaining)
-              if (data.epoch) {
-                setRound(data.epoch)
+              pendingTimeRef.current = {
+                timeRemaining: data.timeRemaining,
+                epoch: data.epoch
               }
               break
               
             case 'epoch_start':
-              // New epoch started
               setRound(data.epoch)
               setReferencePrice(data.referencePrice)
               setTimeRemaining(data.timeRemaining)
+              if (data.epochTimestamps) {
+                setEpochTimestamps(data.epochTimestamps)
+              }
               break
               
             case 'epoch_end':
-              // Epoch ended - mark the last price point as the settlement tick
               markLastPointAsEpochEnd()
-              
-              // Process epoch result
               addEpochResult({
                 epoch: data.epoch,
                 endPrice: data.endPrice,
@@ -117,6 +158,9 @@ export function useBinanceWebSocket() {
                 outcome: data.outcome,
                 timestamp: data.timestamp
               })
+              if (data.epochTimestamps) {
+                setEpochTimestamps(data.epochTimestamps)
+              }
               break
               
             case 'status':
@@ -124,7 +168,6 @@ export function useBinanceWebSocket() {
               break
               
             case 'heartbeat':
-              // Keep alive
               break
           }
         } catch (e) {
@@ -155,13 +198,14 @@ export function useBinanceWebSocket() {
       }, RECONNECT_DELAY)
     }
   }, [
-    addPricePoint, 
+    tick,
     setConnected, 
     initializeHistory,
     markLastPointAsEpochEnd,
     setTimeRemaining,
     setRound,
     setReferencePrice,
+    setEpochTimestamps,
     addEpochResult,
     initializeEpochHistory
   ])
@@ -170,6 +214,11 @@ export function useBinanceWebSocket() {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current)
       reconnectTimeoutRef.current = null
+    }
+    
+    if (frameIntervalRef.current) {
+      clearInterval(frameIntervalRef.current)
+      frameIntervalRef.current = null
     }
     
     if (wsRef.current) {
