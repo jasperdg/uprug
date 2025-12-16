@@ -59,6 +59,36 @@ const ChartDot = memo(function ChartDot({
   )
 })
 
+// Reference price overlay - rendered separately to avoid chart re-renders
+const ReferencePriceOverlay = memo(function ReferencePriceOverlay({
+  referencePrice,
+  minPrice,
+  maxPrice,
+}: {
+  referencePrice: number | null
+  minPrice: number
+  maxPrice: number
+}) {
+  if (!referencePrice) return null
+  
+  // Calculate Y position as percentage
+  const range = maxPrice - minPrice
+  if (range === 0) return null
+  const yPercent = ((maxPrice - referencePrice) / range) * 100
+  
+  // Clamp to visible range
+  if (yPercent < 0 || yPercent > 100) return null
+  
+  return (
+    <div 
+      className="absolute left-0 right-0 pointer-events-none"
+      style={{ top: `${yPercent}%` }}
+    >
+      <div className="border-t border-dashed border-text-primary/30 w-full" />
+    </div>
+  )
+})
+
 // Memoized chart component
 const MemoizedLineChart = memo(function MemoizedLineChart({
   chartData,
@@ -66,7 +96,6 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   maxPrice,
   xDomain,
   isUp,
-  referencePrice,
   epochLines,
   epochZones,
   lastTimestamp,
@@ -76,7 +105,6 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   maxPrice: number
   xDomain: [number, number]
   isUp: boolean
-  referencePrice: number | null
   epochLines: EpochLine[]
   epochZones: EpochZone[]
   lastTimestamp: number
@@ -107,12 +135,12 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
             key={`zone-${i}-${zone.start}`}
             x1={zone.start}
             x2={zone.end}
-            fill={
-              zone.epochNumber !== undefined
-                ? getEpochColor(zone.epochNumber) // Alternating blue/purple based on epoch
-                : 'rgba(60, 60, 80, 0.05)'
-            }
-            fillOpacity={zone.type === 'future' ? 0.4 : 1} // Dimmer for future epochs
+          fill={
+            zone.epochNumber !== undefined
+              ? getEpochColor(zone.epochNumber) // Alternating blue/purple based on epoch
+              : 'rgba(60, 60, 80, 0.05)'
+          }
+          fillOpacity={1}
           />
         ))}
         
@@ -127,17 +155,6 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
             strokeWidth={1}
           />
         ))}
-        
-        {/* Reference price horizontal line */}
-        {referencePrice && (
-          <ReferenceLine
-            y={referencePrice}
-            stroke="var(--text-primary)"
-            strokeDasharray="4 4"
-            strokeOpacity={0.3}
-            strokeWidth={1}
-          />
-        )}
         
         <Line
           type="monotone"
@@ -214,9 +231,10 @@ export function PriceChart() {
     const zones: EpochZone[] = []
     const visibleTimestamps = epochTimestamps.filter(ts => ts >= domainStart - 10000 && ts <= domainEnd + 10000)
     
-    // The resolving epoch is currentRound - 1, betting is currentRound
-    const resolvingEpochNumber = currentRound - 1
-    const bettingEpochNumber = currentRound
+    // The resolving epoch is currentRound, betting is currentRound + 1
+    // This matches EpochPositionCards: Position card shows currentRound, Betting card shows currentRound + 1
+    const resolvingEpochNumber = currentRound
+    const bettingEpochNumber = currentRound + 1
     
     for (let i = 0; i < visibleTimestamps.length; i++) {
       const epochEnd = visibleTimestamps[i]
@@ -248,7 +266,8 @@ export function PriceChart() {
           epochNumber = bettingEpochNumber
         } else {
           // Future epochs - calculate epoch number relative to current
-          const epochsAhead = Math.round((epochEnd - resolvingEpochEnd!) / 10000)
+          // Use epochStart (not epochEnd) to correctly count epochs ahead
+          const epochsAhead = Math.round((epochStart - resolvingEpochEnd!) / 10000)
           epochNumber = bettingEpochNumber + epochsAhead
           zoneType = 'future'
         }
@@ -310,18 +329,27 @@ export function PriceChart() {
       )}
       
       {/* Chart */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
         <MemoizedLineChart
           chartData={chartData}
           minPrice={minPrice}
           maxPrice={maxPrice}
           xDomain={xDomain}
           isUp={isUp}
-          referencePrice={referencePrice}
           epochLines={epochLines}
           epochZones={epochZones}
           lastTimestamp={lastTimestamp}
         />
+        {/* Reference price overlay - rendered separately to avoid chart re-renders */}
+        <div className="absolute inset-0 pointer-events-none" style={{ margin: '5px 10px 5px 10px' }}>
+          <div className="relative w-full h-full">
+            <ReferencePriceOverlay 
+              referencePrice={referencePrice}
+              minPrice={minPrice}
+              maxPrice={maxPrice}
+            />
+          </div>
+        </div>
       </div>
       
       {/* Connection indicator */}

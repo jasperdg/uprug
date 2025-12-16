@@ -2,13 +2,25 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useGameStore, useSeconds } from '../../stores/gameStore'
 import { useUserStore } from '../../stores/userStore'
+import { usePriceStore } from '../../stores/priceStore'
 import { useHaptics } from '../../hooks/useHaptics'
 import { useSoundEffects } from '../../hooks/useSoundEffects'
-import { calculatePotentialPayout, calculateOdds } from '../../utils/parimutuel'
-import { formatCurrency, formatOdds } from '../../utils/formatters'
+import { formatCurrency } from '../../utils/formatters'
 import confetti from 'canvas-confetti'
 
 const PRESET_AMOUNTS = [1, 5, 10, 25]
+
+// Fixed spread calculation based on time remaining
+function getSpread(seconds: number): { spread: number; isLocked: boolean } {
+  if (seconds <= 1) return { spread: 0, isLocked: true } // Locked in last second
+  if (seconds <= 5) return { spread: 0.05, isLocked: false } // 5% for seconds 2-5
+  return { spread: 0.025, isLocked: false } // 2.5% for seconds 6-10
+}
+
+// Calculate payout with fixed spread (win = stake + stake * (1 - spread))
+function calculateFixedPayout(stake: number, spread: number): number {
+  return stake * (2 - spread) // e.g., 2.5% spread = 1.975x, 5% spread = 1.95x
+}
 
 // Helper to get epoch color based on epoch number (odd = blue, even = purple)
 function getEpochStyles(epochNumber: number) {
@@ -25,11 +37,12 @@ export function EpochPositionCards() {
   // Use selectors to minimize re-renders
   const currentRound = useGameStore((s) => s.currentRound)
   const seconds = useSeconds() // Derived selector - only re-renders when second changes
-  const currentPools = useGameStore((s) => s.currentPools)
   const pendingRound = useGameStore((s) => s.pendingRound)
   const showResult = useGameStore((s) => s.showResult)
   const lastPayout = useGameStore((s) => s.lastPayout)
-  const addToPool = useGameStore((s) => s.addToPool)
+  const clearResult = useGameStore((s) => s.clearResult)
+  
+  const currentPrice = usePriceStore((s) => s.currentPrice)
   
   const currentBet = useUserStore((s) => s.currentBet)
   const selectedStake = useUserStore((s) => s.selectedStake)
@@ -39,67 +52,62 @@ export function EpochPositionCards() {
   const { vibrateOnBet } = useHaptics()
   const { playWin, playLoss, playBet } = useSoundEffects()
   
+  // Get current spread based on time remaining for NEXT epoch betting
+  const { spread, isLocked } = getSpread(seconds)
+  const payoutMultiplier = (2 - spread).toFixed(3) // e.g., 1.975x or 1.950x
+  
   // Track explosion animation - only for users with bets
   const [explosionState, setExplosionState] = useState<'none' | 'win' | 'loss'>('none')
   const hasTriggeredExplosion = useRef(false)
   
-  // Calculate potential payouts for current bet
+  // Calculate potential payouts for current bet (fixed spread)
   const currentBetPayouts = useMemo(() => {
     if (!currentBet) return null
     
-    const upPool = currentPools.up + (currentBet.direction === 'up' ? 0 : 0)
-    const downPool = currentPools.down + (currentBet.direction === 'down' ? 0 : 0)
-    
-    const winPayout = calculatePotentialPayout(
-      currentBet.amount,
-      currentBet.direction === 'up' ? upPool : downPool,
-      currentBet.direction === 'up' ? downPool : upPool
-    )
+    // Use the spread that was locked in when bet was placed
+    const betSpread = currentBet.spread || 0.025
+    const winPayout = calculateFixedPayout(currentBet.amount, betSpread)
     
     return {
       ifWin: winPayout,
-      ifLose: 0,
       direction: currentBet.direction,
       amount: currentBet.amount,
+      spread: betSpread,
     }
-  }, [currentBet, currentPools])
+  }, [currentBet])
   
   // Calculate potential payouts for pending bet (awaiting resolution)
   const pendingBetPayouts = useMemo(() => {
     if (!pendingRound?.userBet) return null
     
     const bet = pendingRound.userBet
-    const pools = pendingRound.pools
-    
-    const winPayout = calculatePotentialPayout(
-      bet.amount,
-      bet.direction === 'up' ? pools.up : pools.down,
-      bet.direction === 'up' ? pools.down : pools.up
-    )
+    const betSpread = bet.spread || 0.025
+    const winPayout = calculateFixedPayout(bet.amount, betSpread)
     
     return {
       ifWin: winPayout,
-      ifLose: 0,
       direction: bet.direction,
       amount: bet.amount,
       referencePrice: pendingRound.referencePrice,
+      spread: betSpread,
     }
   }, [pendingRound])
   
-  // Calculate odds for betting
-  const { upOdds, downOdds } = useMemo(() => {
-    const stake = selectedStake
+  // Calculate ITM/OTM status for resolving position
+  const moneyStatus = useMemo(() => {
+    if (!pendingBetPayouts?.referencePrice || !currentPrice) return null
+    
+    const priceIsUp = currentPrice > pendingBetPayouts.referencePrice
+    const isInTheMoney = pendingBetPayouts.direction === 'up' ? priceIsUp : !priceIsUp
+    const priceDiff = currentPrice - pendingBetPayouts.referencePrice
+    const priceDiffPercent = (priceDiff / pendingBetPayouts.referencePrice) * 100
+    
     return {
-      upOdds: calculateOdds(
-        currentPools.up + (currentBet?.direction !== 'up' ? stake : 0),
-        currentPools.down
-      ),
-      downOdds: calculateOdds(
-        currentPools.down + (currentBet?.direction !== 'down' ? stake : 0),
-        currentPools.up
-      ),
+      isInTheMoney,
+      priceDiff,
+      priceDiffPercent,
     }
-  }, [currentPools, selectedStake, currentBet])
+  }, [currentPrice, pendingBetPayouts])
   
   // Handle explosion on result - showResult is only true when user had a bet
   useEffect(() => {
@@ -151,25 +159,37 @@ export function EpochPositionCards() {
     }
   }, [showResult])
   
+  // Auto-hide result badge after 2 seconds
+  useEffect(() => {
+    if (showResult) {
+      const timer = setTimeout(() => {
+        clearResult()
+      }, 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [showResult, clearResult])
+  
   const handleBet = (direction: 'up' | 'down') => {
-    const success = placeBet(direction, selectedStake)
+    if (isLocked) return
+    const success = placeBet(direction, selectedStake, spread)
     if (success) {
-      addToPool(direction, selectedStake)
       vibrateOnBet()
       playBet()
     }
   }
   
   
-  // Get styles for both cards based on epoch numbers
-  const resolvingStyles = getEpochStyles(currentRound - 1)
-  const bettingStyles = getEpochStyles(currentRound)
+  // Get styles for both cards based on epoch numbers - memoized to prevent recalc
+  // Resolving position = current epoch (bet placed during previous epoch, resolves now)
+  // Betting = next epoch (bet placed now, resolves at end of next epoch)
+  const resolvingEpoch = pendingRound?.roundNumber ?? currentRound
+  const resolvingStyles = useMemo(() => getEpochStyles(resolvingEpoch), [resolvingEpoch])
+  const bettingStyles = useMemo(() => getEpochStyles(currentRound + 1), [currentRound])
   
   return (
-    <div className="flex flex-col gap-3 px-4 py-3">
-      {/* Current Epoch Card - Resolving */}
+    <div className="flex flex-col gap-3 px-4 py-3 pb-40">
+      {/* Resolving Position Card - bet from previous epoch, settles at end of current epoch */}
       <motion.div
-        key={`current-${currentRound - 1}`}
         initial={false}
         animate={{ 
           boxShadow: explosionState === 'win' 
@@ -187,7 +207,7 @@ export function EpochPositionCards() {
               : resolvingStyles.background
         }}
         className={`
-          relative rounded-xl p-4 overflow-hidden
+          relative rounded-xl p-4 overflow-hidden min-h-[140px]
           ${explosionState === 'win' 
             ? 'border-2 border-accent-up' 
             : explosionState === 'loss'
@@ -214,10 +234,10 @@ export function EpochPositionCards() {
           <div className="flex items-center justify-between mb-3 relative z-10">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-text-secondary uppercase tracking-wide">
-                Resolving
+                {pendingBetPayouts ? 'Position' : 'Resolving'}
               </span>
               <span className="text-xs font-mono text-text-secondary">
-                #{currentRound - 1}
+                #{pendingRound?.roundNumber || currentRound}
               </span>
             </div>
             <div className={`
@@ -232,7 +252,7 @@ export function EpochPositionCards() {
               {explosionState === 'win' ? (
                 <span>+{formatCurrency(lastPayout!)}</span>
               ) : explosionState === 'loss' ? (
-                <span>RUGGED</span>
+                <span>RUGGED 💀</span>
               ) : (
                 <span>⏳ {seconds}s</span>
               )}
@@ -243,41 +263,57 @@ export function EpochPositionCards() {
           <div className="relative z-10">
             {pendingBetPayouts ? (
               <>
-                <div className="flex items-center gap-2 mb-3">
-                  <span className={`
-                    text-lg font-bold
-                    ${pendingBetPayouts.direction === 'up' ? 'text-accent-up' : 'text-accent-down'}
-                  `}>
-                    {pendingBetPayouts.direction === 'up' ? '⬆️ UP' : '⬇️ RUG'}
-                  </span>
-                  <span className="text-sm font-mono text-text-secondary">
-                    {formatCurrency(pendingBetPayouts.amount)}
-                  </span>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className={`
+                      text-lg font-bold
+                      ${pendingBetPayouts.direction === 'up' ? 'text-accent-up' : 'text-accent-down'}
+                    `}>
+                      {pendingBetPayouts.direction === 'up' ? '⬆️ UP' : '⬇️ RUG'}
+                    </span>
+                    <span className="text-sm font-mono text-text-secondary">
+                      {formatCurrency(pendingBetPayouts.amount)}
+                    </span>
+                  </div>
+                  {moneyStatus && (
+                    <span className={`
+                      px-2 py-1 rounded text-xs font-bold
+                      ${moneyStatus.isInTheMoney 
+                        ? 'bg-accent-up/20 text-accent-up' 
+                        : 'bg-accent-down/20 text-accent-down'
+                      }
+                    `}>
+                      {moneyStatus.isInTheMoney ? 'ITM' : 'OTM'} {moneyStatus.priceDiffPercent >= 0 ? '+' : ''}{moneyStatus.priceDiffPercent.toFixed(2)}%
+                    </span>
+                  )}
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3 text-sm">
+                {/* Price comparison */}
+                <div className="grid grid-cols-2 gap-3 text-sm mb-3">
                   <div className="bg-bg-tertiary/50 rounded-lg p-2">
-                    <div className="text-xs text-text-secondary mb-1">If UP wins</div>
-                    <div className={`font-mono font-bold ${pendingBetPayouts.direction === 'up' ? 'text-accent-up' : 'text-text-secondary'}`}>
-                      {pendingBetPayouts.direction === 'up' 
-                        ? `+${formatCurrency(pendingBetPayouts.ifWin)}` 
-                        : '-' + formatCurrency(pendingBetPayouts.amount)
-                      }
+                    <div className="text-xs text-text-secondary mb-1">Entry Price</div>
+                    <div className="font-mono font-bold text-text-primary">
+                      ${pendingBetPayouts.referencePrice?.toFixed(2)}
                     </div>
                   </div>
                   <div className="bg-bg-tertiary/50 rounded-lg p-2">
-                    <div className="text-xs text-text-secondary mb-1">If RUG wins</div>
-                    <div className={`font-mono font-bold ${pendingBetPayouts.direction === 'down' ? 'text-accent-up' : 'text-text-secondary'}`}>
-                      {pendingBetPayouts.direction === 'down' 
-                        ? `+${formatCurrency(pendingBetPayouts.ifWin)}` 
-                        : '-' + formatCurrency(pendingBetPayouts.amount)
-                      }
+                    <div className="text-xs text-text-secondary mb-1">Current Price</div>
+                    <div className={`font-mono font-bold ${
+                      moneyStatus?.isInTheMoney ? 'text-accent-up' : 'text-accent-down'
+                    }`}>
+                      ${currentPrice.toFixed(2)}
                     </div>
                   </div>
                 </div>
                 
-                <div className="mt-2 text-xs text-text-secondary">
-                  Entry: ${pendingBetPayouts.referencePrice?.toFixed(2)}
+                {/* Potential payout */}
+                <div className="bg-bg-tertiary/50 rounded-lg p-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-text-secondary">If you win</span>
+                    <span className="font-mono font-bold text-accent-up">
+                      +{formatCurrency(pendingBetPayouts.ifWin - pendingBetPayouts.amount)}
+                    </span>
+                  </div>
                 </div>
               </>
             ) : (
@@ -286,31 +322,17 @@ export function EpochPositionCards() {
                   <span className="text-lg font-bold text-text-secondary">
                     No Position
                   </span>
-                  <span className="text-sm font-mono text-text-secondary">
-                    $0.00
-                  </span>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="bg-bg-tertiary/50 rounded-lg p-2">
-                    <div className="text-xs text-text-secondary mb-1">If UP wins</div>
-                    <div className="font-mono font-bold text-text-secondary">
-                      $0.00
-                    </div>
-                  </div>
-                  <div className="bg-bg-tertiary/50 rounded-lg p-2">
-                    <div className="text-xs text-text-secondary mb-1">If RUG wins</div>
-                    <div className="font-mono font-bold text-text-secondary">
-                      $0.00
-                    </div>
-                  </div>
+                <div className="text-sm text-text-secondary">
+                  You didn't bet on this epoch
                 </div>
               </>
             )}
           </div>
         </motion.div>
       
-      {/* Next Epoch Card - Betting */}
+      {/* Next Epoch Card - Betting for next epoch */}
       <div
         style={{
           background: bettingStyles.background
@@ -324,7 +346,7 @@ export function EpochPositionCards() {
               Betting Open
             </span>
             <span className="text-xs font-mono text-text-secondary">
-              #{currentRound}
+              #{currentRound + 1}
             </span>
           </div>
           <div className={`
@@ -338,69 +360,46 @@ export function EpochPositionCards() {
           </div>
         </div>
         
-        {/* Current bet display - always show */}
-        <div className="mb-3 p-3 rounded-lg bg-bg-tertiary border border-border">
+        {/* Current bet display */}
+        <div className="p-3 rounded-lg bg-bg-tertiary border border-border">
           {currentBetPayouts ? (
             <>
-              <div className="flex items-center gap-2 mb-2">
-                <span className={`
-                  font-bold
-                  ${currentBetPayouts.direction === 'up' ? 'text-accent-up' : 'text-accent-down'}
-                `}>
-                  {currentBetPayouts.direction === 'up' ? '⬆️ UP' : '⬇️ RUG'}
-                </span>
-                <span className="text-sm font-mono text-text-secondary">
-                  {formatCurrency(currentBetPayouts.amount)}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className={`
+                    font-bold
+                    ${currentBetPayouts.direction === 'up' ? 'text-accent-up' : 'text-accent-down'}
+                  `}>
+                    {currentBetPayouts.direction === 'up' ? '⬆️ UP' : '⬇️ RUG'}
+                  </span>
+                  <span className="text-sm font-mono text-text-secondary">
+                    {formatCurrency(currentBetPayouts.amount)}
+                  </span>
+                </div>
+                <span className="text-xs font-mono text-text-secondary">
+                  {(2 - (currentBetPayouts.spread || 0.025)).toFixed(3)}x
                 </span>
               </div>
               
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-text-secondary">If UP: </span>
-                  <span className={`font-mono ${currentBetPayouts.direction === 'up' ? 'text-accent-up' : 'text-accent-down'}`}>
-                    {currentBetPayouts.direction === 'up' 
-                      ? `+${formatCurrency(currentBetPayouts.ifWin)}` 
-                      : `-${formatCurrency(currentBetPayouts.amount)}`
-                    }
-                  </span>
-                </div>
-                <div>
-                  <span className="text-text-secondary">If RUG: </span>
-                  <span className={`font-mono ${currentBetPayouts.direction === 'down' ? 'text-accent-up' : 'text-accent-down'}`}>
-                    {currentBetPayouts.direction === 'down' 
-                      ? `+${formatCurrency(currentBetPayouts.ifWin)}` 
-                      : `-${formatCurrency(currentBetPayouts.amount)}`
-                    }
-                  </span>
-                </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-text-secondary">Potential win:</span>
+                <span className="font-mono font-bold text-accent-up">
+                  +{formatCurrency(currentBetPayouts.ifWin - currentBetPayouts.amount)}
+                </span>
               </div>
             </>
           ) : (
-            <>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="font-bold text-text-secondary">
-                  No Position
-                </span>
-                <span className="text-sm font-mono text-text-secondary">
-                  $0.00
-                </span>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <span className="text-text-secondary">If UP: </span>
-                  <span className="font-mono text-text-secondary">$0.00</span>
-                </div>
-                <div>
-                  <span className="text-text-secondary">If RUG: </span>
-                  <span className="font-mono text-text-secondary">$0.00</span>
-                </div>
-              </div>
-            </>
+            <div className="text-center text-text-secondary text-sm">
+              No position yet - use buttons below
+            </div>
           )}
         </div>
         
-        {/* Stake selector */}
+      </div>
+      
+      {/* Floating Bet Buttons - Fixed at bottom */}
+      <div className="fixed bottom-4 left-4 right-4 z-50 bg-bg-secondary/95 backdrop-blur-sm border border-border rounded-2xl px-4 py-3 shadow-lg">
+        {/* Stake selector row */}
         <div className="flex gap-2 mb-3">
           {PRESET_AMOUNTS.map((amount) => (
             <motion.button
@@ -423,40 +422,14 @@ export function EpochPositionCards() {
           ))}
         </div>
         
-        {/* Pool display */}
-        <div className="mb-3">
-          <div className="flex justify-between text-xs text-text-secondary mb-1">
-            <span>⬆️ {formatCurrency(currentPools.up)} ({formatOdds(upOdds)})</span>
-            <span>({formatOdds(downOdds)}) {formatCurrency(currentPools.down)} ⬇️</span>
-          </div>
-          <div className="h-2 bg-bg-tertiary rounded-full overflow-hidden flex">
-            <div
-              className="h-full bg-accent-up transition-all duration-300"
-              style={{ 
-                width: `${currentPools.up + currentPools.down > 0 
-                  ? (currentPools.up / (currentPools.up + currentPools.down)) * 100 
-                  : 50}%` 
-              }}
-            />
-            <div
-              className="h-full bg-accent-down transition-all duration-300"
-              style={{ 
-                width: `${currentPools.up + currentPools.down > 0 
-                  ? (currentPools.down / (currentPools.up + currentPools.down)) * 100 
-                  : 50}%` 
-              }}
-            />
-          </div>
-        </div>
-        
         {/* Bet buttons */}
         <div className="flex gap-3">
           <motion.button
-            whileTap={{ scale: 0.95 }}
+            whileTap={isLocked ? undefined : { scale: 0.95 }}
             onClick={() => handleBet('up')}
-            disabled={selectedStake > balance + (currentBet?.amount ?? 0)}
+            disabled={isLocked || selectedStake > balance + (currentBet?.amount ?? 0)}
             className={`
-              flex-1 py-4 rounded-xl font-bold text-lg
+              flex-1 py-3 rounded-xl font-bold
               transition-all duration-150
               disabled:opacity-30 disabled:cursor-not-allowed
               ${currentBet?.direction === 'up'
@@ -465,14 +438,22 @@ export function EpochPositionCards() {
               }
             `}
           >
-            ⬆️ UP
+            <div className="flex flex-col items-center">
+              <span className="text-lg">⬆️ UP</span>
+              {!isLocked && (
+                <span className="text-xs opacity-75">{payoutMultiplier}x</span>
+              )}
+              {isLocked && (
+                <span className="text-xs opacity-75">🔒</span>
+              )}
+            </div>
           </motion.button>
           <motion.button
-            whileTap={{ scale: 0.95 }}
+            whileTap={isLocked ? undefined : { scale: 0.95 }}
             onClick={() => handleBet('down')}
-            disabled={selectedStake > balance + (currentBet?.amount ?? 0)}
+            disabled={isLocked || selectedStake > balance + (currentBet?.amount ?? 0)}
             className={`
-              flex-1 py-4 rounded-xl font-bold text-lg
+              flex-1 py-3 rounded-xl font-bold
               transition-all duration-150
               disabled:opacity-30 disabled:cursor-not-allowed
               ${currentBet?.direction === 'down'
@@ -481,13 +462,16 @@ export function EpochPositionCards() {
               }
             `}
           >
-            ⬇️ RUG
+            <div className="flex flex-col items-center">
+              <span className="text-lg">⬇️ RUG</span>
+              {!isLocked && (
+                <span className="text-xs opacity-75">{payoutMultiplier}x</span>
+              )}
+              {isLocked && (
+                <span className="text-xs opacity-75">🔒</span>
+              )}
+            </div>
           </motion.button>
-        </div>
-        
-        {/* Balance */}
-        <div className="mt-3 text-center text-xs text-text-secondary">
-          Balance: <span className="font-mono font-bold text-text-primary">{formatCurrency(balance)}</span>
         </div>
       </div>
     </div>

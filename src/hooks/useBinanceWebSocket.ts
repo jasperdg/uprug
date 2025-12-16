@@ -66,7 +66,7 @@ export function useBinanceWebSocket() {
   } = useGameStore()
   
   // Use refs for values we need to read but shouldn't trigger reconnection
-  const currentBetRef = useRef<{ direction: 'up' | 'down'; amount: number } | null>(null)
+  const currentBetRef = useRef<{ direction: 'up' | 'down'; amount: number; spread?: number } | null>(null)
   const currentPoolsRef = useRef<{ up: number; down: number }>({ up: 0, down: 0 })
   
   // Subscribe to store changes and update refs (doesn't cause re-render of hook)

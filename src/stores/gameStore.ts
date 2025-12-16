@@ -7,6 +7,7 @@ export interface UserBet {
   direction: BetDirection
   amount: number
   timestamp: number
+  spread?: number
 }
 
 export interface EpochResult {
@@ -54,6 +55,7 @@ interface GameState {
   // Last resolved outcome
   lastOutcome: BetDirection | null
   lastPayout: number | null
+  lastBetAmount: number | null // Track bet amount for loss display
   showResult: boolean
   
   // Marker for chart
@@ -109,6 +111,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   pendingRound: null,
   lastOutcome: null,
   lastPayout: null,
+  lastBetAmount: null,
   showResult: false,
   resolvedMarker: null,
   
@@ -155,27 +158,19 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
     
     // Check if user had a bet on this epoch
+    // pendingRound.roundNumber is the epoch the bet is FOR
     let lastOutcome: BetDirection | null = null
     let lastPayout: number | null = null
     let showResult = false
     
-    if (pendingRound && pendingRound.roundNumber === result.epoch - 1 && pendingRound.userBet) {
+    if (pendingRound && pendingRound.roundNumber === result.epoch && pendingRound.userBet) {
       lastOutcome = result.outcome
       showResult = true
       
       if (pendingRound.userBet.direction === result.outcome) {
-        // Winner - calculate payout (simplified for prototype)
-        const totalPool = pendingRound.pools.up + pendingRound.pools.down
-        const winningPool = pendingRound.pools[result.outcome!]
-        const rake = 0.05
-        // Prevent division by zero - if winningPool is 0, return the bet amount
-        if (winningPool > 0 && totalPool > 0) {
-          const calculated = (pendingRound.userBet.amount / winningPool) * totalPool * (1 - rake)
-          // Extra safety: ensure result is a valid finite number
-          lastPayout = isFinite(calculated) && !isNaN(calculated) ? calculated : pendingRound.userBet.amount
-        } else {
-          lastPayout = pendingRound.userBet.amount // Return original bet if pool is empty
-        }
+        // Winner - fixed spread payout: stake * (2 - spread)
+        const spread = pendingRound.userBet.spread || 0.025
+        lastPayout = pendingRound.userBet.amount * (2 - spread)
       } else {
         lastPayout = 0
       }
@@ -225,7 +220,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     })
   },
   
-  clearResult: () => set({ showResult: false, lastOutcome: null, lastPayout: null }),
+  clearResult: () => set({ showResult: false, lastOutcome: null, lastPayout: null, lastBetAmount: null }),
   
   simulateOtherBets: () => {
     const { currentPools } = get()
@@ -269,37 +264,43 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
       
-      // Check if user had a bet - use currentBet passed directly to avoid race condition
-      // currentBet is the bet placed during the epoch that just ended
-      if (currentBet && currentPools && epochEnd.outcome) {
-        // Store in pendingRound for UI display during next epoch
+      // FIRST: Resolve any existing pendingRound IF it's for THIS epoch
+      // pendingRound.roundNumber is the epoch the bet is FOR
+      const shouldResolve = pendingRound && 
+        pendingRound.userBet && 
+        pendingRound.roundNumber === epochEnd.epoch && 
+        epochEnd.outcome
+      
+      if (shouldResolve) {
+        stateUpdate.lastOutcome = epochEnd.outcome
+        stateUpdate.showResult = true
+        stateUpdate.lastBetAmount = pendingRound.userBet.amount
+        
+        if (pendingRound.userBet.direction === epochEnd.outcome) {
+          // Fixed spread payout: stake * (2 - spread)
+          const spread = pendingRound.userBet.spread || 0.025
+          const payout = pendingRound.userBet.amount * (2 - spread)
+          stateUpdate.lastPayout = payout
+        } else {
+          stateUpdate.lastPayout = 0
+        }
+        // Clear the resolved pendingRound
+        stateUpdate.pendingRound = null
+      }
+      
+      // SECOND: Move currentBet to pendingRound for resolution at END of NEXT epoch
+      // This bet was placed during epoch N, for epoch N+1
+      if (currentBet) {
         stateUpdate.pendingRound = {
-          roundNumber: epochEnd.epoch,
-          referencePrice: epochEnd.referencePrice || 0,
+          roundNumber: epochEnd.epoch + 1, // This bet is FOR the next epoch
+          referencePrice: epochStart?.referencePrice || epochEnd.endPrice, // Reference is start of next epoch
           userBet: {
             direction: currentBet.direction,
             amount: currentBet.amount,
-            timestamp: epochEnd.timestamp
+            timestamp: epochEnd.timestamp,
+            spread: currentBet.spread
           },
-          pools: { ...currentPools }
-        }
-        
-        // Calculate win/loss immediately
-        stateUpdate.lastOutcome = epochEnd.outcome
-        stateUpdate.showResult = true
-        
-        if (currentBet.direction === epochEnd.outcome) {
-          const totalPool = currentPools.up + currentPools.down
-          const winningPool = currentPools[epochEnd.outcome]
-          const rake = 0.05
-          if (winningPool > 0 && totalPool > 0) {
-            const calculated = (currentBet.amount / winningPool) * totalPool * (1 - rake)
-            stateUpdate.lastPayout = isFinite(calculated) && !isNaN(calculated) ? calculated : currentBet.amount
-          } else {
-            stateUpdate.lastPayout = currentBet.amount
-          }
-        } else {
-          stateUpdate.lastPayout = 0
+          pools: currentPools ? { ...currentPools } : { up: 0, down: 0 }
         }
       }
       

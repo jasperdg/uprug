@@ -13,7 +13,7 @@ export interface BetRecord {
 
 interface UserState {
   balance: number
-  currentBet: { direction: BetDirection; amount: number } | null
+  currentBet: { direction: BetDirection; amount: number; spread?: number } | null
   selectedStake: number
   betHistory: BetRecord[]
   soundEnabled: boolean
@@ -22,7 +22,7 @@ interface UserState {
   // Actions
   setBalance: (balance: number) => void
   adjustBalance: (amount: number) => void
-  placeBet: (direction: BetDirection, amount: number) => boolean
+  placeBet: (direction: BetDirection, amount: number, spread?: number) => boolean
   clearCurrentBet: () => void
   setSelectedStake: (stake: number) => void
   addBetRecord: (record: BetRecord) => void
@@ -50,7 +50,7 @@ export const useUserStore = create<UserState>()(
         set({ balance: Math.max(0, balance + amount) })
       },
       
-      placeBet: (direction: BetDirection, amount: number) => {
+      placeBet: (direction: BetDirection, amount: number, spread?: number) => {
         const { balance, currentBet } = get()
         
         // If already bet, refund previous bet first
@@ -63,7 +63,7 @@ export const useUserStore = create<UserState>()(
         
         set({
           balance: effectiveBalance - amount,
-          currentBet: { direction, amount },
+          currentBet: { direction, amount, spread },
         })
         return true
       },

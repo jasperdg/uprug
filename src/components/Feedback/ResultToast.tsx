@@ -3,7 +3,9 @@ import { useGameStore } from '../../stores/gameStore'
 import { formatCurrency } from '../../utils/formatters'
 
 export function ResultToast() {
-  const { showResult, lastPayout } = useGameStore()
+  const showResult = useGameStore((s) => s.showResult)
+  const lastPayout = useGameStore((s) => s.lastPayout)
+  const lastBetAmount = useGameStore((s) => s.lastBetAmount)
   
   if (!showResult || lastPayout === null) return null
   
@@ -26,7 +28,7 @@ export function ResultToast() {
               : 'bg-accent-down text-bg-primary shadow-accent-down/30'
             }
           `}>
-            {isWin ? '+' : '-'}{formatCurrency(isWin ? lastPayout : 0)}
+            {isWin ? '+' : '-'}{formatCurrency(isWin ? lastPayout : (lastBetAmount || 0))}
           </div>
         </motion.div>
       )}
