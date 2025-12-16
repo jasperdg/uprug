@@ -117,8 +117,8 @@ export const useGameStore = create<GameState>((set, get) => ({
   setPhase: (phase: RoundPhase) => set({ roundPhase: phase }),
   
   setTimeRemaining: (time: number) => {
-    const phase: RoundPhase = time < 500 ? 'resolving' : time < 2000 ? 'locked' : 'betting'
-    set({ timeRemaining: Math.max(0, time), roundPhase: phase })
+    // No betting lock - always allow betting until epoch ends
+    set({ timeRemaining: Math.max(0, time), roundPhase: 'betting' })
   },
   
   setReferencePrice: (price: number | null) => set({ referencePrice: price }),
@@ -314,11 +314,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       stateUpdate.referencePrice = epochStart.referencePrice
       stateUpdate.timeRemaining = epochStart.timeRemaining
       
-      // Determine phase based on time remaining
-      const phase: RoundPhase = epochStart.timeRemaining < 500 ? 'resolving' 
-        : epochStart.timeRemaining < 2000 ? 'locked' 
-        : 'betting'
-      stateUpdate.roundPhase = phase
+      // No betting lock - always betting phase
+      stateUpdate.roundPhase = 'betting'
       
       if (epochStart.epochTimestamps) {
         stateUpdate.epochTimestamps = epochStart.epochTimestamps

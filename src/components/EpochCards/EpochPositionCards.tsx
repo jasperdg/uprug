@@ -14,7 +14,6 @@ export function EpochPositionCards() {
   // Use selectors to minimize re-renders
   const currentRound = useGameStore((s) => s.currentRound)
   const seconds = useSeconds() // Derived selector - only re-renders when second changes
-  const roundPhase = useGameStore((s) => s.roundPhase)
   const currentPools = useGameStore((s) => s.currentPools)
   const pendingRound = useGameStore((s) => s.pendingRound)
   const showResult = useGameStore((s) => s.showResult)
@@ -142,8 +141,6 @@ export function EpochPositionCards() {
   }, [showResult])
   
   const handleBet = (direction: 'up' | 'down') => {
-    if (roundPhase !== 'betting') return
-    
     const success = placeBet(direction, selectedStake)
     if (success) {
       addToPool(direction, selectedStake)
@@ -152,7 +149,6 @@ export function EpochPositionCards() {
     }
   }
   
-  const isLocked = roundPhase === 'locked' || roundPhase === 'resolving'
   
   return (
     <div className="flex flex-col gap-3 px-4 py-3">
@@ -318,14 +314,12 @@ export function EpochPositionCards() {
           </div>
           <div className={`
             px-2 py-1 rounded text-xs font-mono font-bold
-            ${isLocked 
-              ? 'bg-accent-highlight/20 text-accent-highlight' 
-              : seconds <= 3 
-                ? 'bg-accent-down/20 text-accent-down'
-                : 'bg-accent-up/20 text-accent-up'
+            ${seconds <= 3 
+              ? 'bg-accent-down/20 text-accent-down'
+              : 'bg-accent-up/20 text-accent-up'
             }
           `}>
-            {isLocked ? '🔒 Locked' : `${seconds}s left`}
+            {seconds}s left
           </div>
         </div>
         
@@ -398,7 +392,7 @@ export function EpochPositionCards() {
               key={amount}
               whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedStake(amount)}
-              disabled={amount > balance || isLocked}
+              disabled={amount > balance}
               className={`
                 flex-1 py-2 rounded-lg font-mono text-sm font-bold
                 transition-all duration-150
@@ -445,7 +439,7 @@ export function EpochPositionCards() {
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => handleBet('up')}
-            disabled={isLocked || selectedStake > balance + (currentBet?.amount ?? 0)}
+            disabled={selectedStake > balance + (currentBet?.amount ?? 0)}
             className={`
               flex-1 py-4 rounded-xl font-bold text-lg
               transition-all duration-150
@@ -461,7 +455,7 @@ export function EpochPositionCards() {
           <motion.button
             whileTap={{ scale: 0.95 }}
             onClick={() => handleBet('down')}
-            disabled={isLocked || selectedStake > balance + (currentBet?.amount ?? 0)}
+            disabled={selectedStake > balance + (currentBet?.amount ?? 0)}
             className={`
               flex-1 py-4 rounded-xl font-bold text-lg
               transition-all duration-150
