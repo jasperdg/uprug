@@ -12,26 +12,47 @@ function getAudioContext(): AudioContext {
   return audioContext
 }
 
+// Ensure audio context is ready - must be called before playing sounds
+async function ensureAudioReady(): Promise<AudioContext> {
+  const ctx = getAudioContext()
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume()
+    } catch (e) {
+      console.warn('Failed to resume AudioContext:', e)
+    }
+  }
+  return ctx
+}
+
 // Unlock audio on mobile - must be called from user gesture
-function unlockAudio() {
+async function unlockAudio() {
   if (audioUnlocked) return
   
   const ctx = getAudioContext()
   
   // Resume context if suspended
   if (ctx.state === 'suspended') {
-    ctx.resume()
+    try {
+      await ctx.resume()
+    } catch (e) {
+      console.warn('Failed to resume AudioContext:', e)
+    }
   }
   
   // Play a silent buffer to fully unlock on iOS
-  const buffer = ctx.createBuffer(1, 1, 22050)
-  const source = ctx.createBufferSource()
-  source.buffer = buffer
-  source.connect(ctx.destination)
-  source.start(0)
+  try {
+    const buffer = ctx.createBuffer(1, 1, 22050)
+    const source = ctx.createBufferSource()
+    source.buffer = buffer
+    source.connect(ctx.destination)
+    source.start(0)
+  } catch (e) {
+    console.warn('Failed to play silent buffer:', e)
+  }
   
   audioUnlocked = true
-  console.log('Audio unlocked')
+  console.log('Audio unlocked, context state:', ctx.state)
 }
 
 // Set up global unlock listener
@@ -51,11 +72,8 @@ if (typeof window !== 'undefined') {
   document.addEventListener('keydown', unlockHandler, true)
 }
 
-// Play a coin/bell tone
-function playBellTone(frequency: number, duration: number, volume: number, delay: number) {
-  const ctx = getAudioContext()
-  if (ctx.state === 'suspended') ctx.resume()
-  
+// Play a coin/bell tone (uses pre-ensured context)
+function playBellTone(ctx: AudioContext, frequency: number, duration: number, volume: number, delay: number) {
   const oscillator = ctx.createOscillator()
   const gainNode = ctx.createGain()
   
@@ -75,11 +93,8 @@ function playBellTone(frequency: number, duration: number, volume: number, delay
   oscillator.stop(ctx.currentTime + delay + duration)
 }
 
-// Play metallic click
-function playClick(frequency: number, volume: number, delay: number) {
-  const ctx = getAudioContext()
-  if (ctx.state === 'suspended') ctx.resume()
-  
+// Play metallic click (uses pre-ensured context)
+function playClick(ctx: AudioContext, frequency: number, volume: number, delay: number) {
   const oscillator = ctx.createOscillator()
   const gainNode = ctx.createGain()
   
@@ -97,11 +112,8 @@ function playClick(frequency: number, volume: number, delay: number) {
   oscillator.stop(ctx.currentTime + delay + 0.03)
 }
 
-// Coin drop sound
-function playCoinDrop(delay: number) {
-  const ctx = getAudioContext()
-  if (ctx.state === 'suspended') ctx.resume()
-  
+// Coin drop sound (uses pre-ensured context)
+function playCoinDrop(ctx: AudioContext, delay: number) {
   // Multiple harmonics for metallic coin sound
   const frequencies = [4200, 5600, 7000]
   
@@ -126,34 +138,32 @@ function playCoinDrop(delay: number) {
 }
 
 // Ka-ching! Cash register / money sound
-function playWinSound() {
-  const ctx = getAudioContext()
-  if (ctx.state === 'suspended') ctx.resume()
+async function playWinSound() {
+  const ctx = await ensureAudioReady()
   
   // Initial drawer open click
-  playClick(1500, 0.12, 0)
-  playClick(800, 0.08, 0.01)
+  playClick(ctx, 1500, 0.12, 0)
+  playClick(ctx, 800, 0.08, 0.01)
   
   // Main bell "CHING!" - two-tone bell like a cash register
-  playBellTone(2093, 0.4, 0.2, 0.03)  // C7
-  playBellTone(2637, 0.4, 0.15, 0.03) // E7
-  playBellTone(3136, 0.35, 0.1, 0.05) // G7
+  playBellTone(ctx, 2093, 0.4, 0.2, 0.03)  // C7
+  playBellTone(ctx, 2637, 0.4, 0.15, 0.03) // E7
+  playBellTone(ctx, 3136, 0.35, 0.1, 0.05) // G7
   
   // Coin cascade
-  playCoinDrop(0.12)
-  playCoinDrop(0.18)
-  playCoinDrop(0.23)
-  playCoinDrop(0.27)
-  playCoinDrop(0.30)
+  playCoinDrop(ctx, 0.12)
+  playCoinDrop(ctx, 0.18)
+  playCoinDrop(ctx, 0.23)
+  playCoinDrop(ctx, 0.27)
+  playCoinDrop(ctx, 0.30)
   
   // Final sparkle
-  playBellTone(4186, 0.2, 0.06, 0.35) // C8
+  playBellTone(ctx, 4186, 0.2, 0.06, 0.35) // C8
 }
 
 // Soft "womp" sound for losses - less harsh
-function playLossSound() {
-  const ctx = getAudioContext()
-  if (ctx.state === 'suspended') ctx.resume()
+async function playLossSound() {
+  const ctx = await ensureAudioReady()
   
   const oscillator = ctx.createOscillator()
   const gainNode = ctx.createGain()
@@ -176,9 +186,8 @@ function playLossSound() {
 }
 
 // Bet sound - satisfying click
-function playBetSound() {
-  const ctx = getAudioContext()
-  if (ctx.state === 'suspended') ctx.resume()
+async function playBetSound() {
+  const ctx = await ensureAudioReady()
   
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
@@ -198,9 +207,8 @@ function playBetSound() {
 }
 
 // Tick sound
-function playTickSound() {
-  const ctx = getAudioContext()
-  if (ctx.state === 'suspended') ctx.resume()
+async function playTickSound() {
+  const ctx = await ensureAudioReady()
   
   const osc = ctx.createOscillator()
   const gain = ctx.createGain()
