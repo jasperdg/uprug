@@ -28,6 +28,21 @@ export function useBinanceWebSocket() {
   // Throttling refs
   const pendingPriceRef = useRef<{ price: number; timestamp: number; epoch: number } | null>(null)
   const pendingTimeRef = useRef<{ timeRemaining: number; epoch?: number } | null>(null)
+  const pendingEpochEndRef = useRef<{
+    epoch: number
+    endPrice: number
+    referencePrice: number | null
+    referenceIndex: number
+    outcome: 'up' | 'down' | null
+    timestamp: number
+    epochTimestamps?: number[]
+  } | null>(null)
+  const pendingEpochStartRef = useRef<{
+    epoch: number
+    referencePrice: number
+    timeRemaining: number
+    epochTimestamps?: number[]
+  } | null>(null)
   const lastFrameRef = useRef<number>(0)
   const lastTimeUpdateRef = useRef<number>(0)
   const frameIntervalRef = useRef<number | null>(null)
@@ -42,13 +57,43 @@ export function useBinanceWebSocket() {
     initializeEpochHistory
   } = useGameStore()
   
-  // Run at ~70fps - flush real data OR extrapolate horizontal line
+  // Run at ~70fps - flush all pending updates in batched manner
   const tick = useCallback(() => {
     const now = Date.now()
     
     // Check if it's time for a new frame
     if (now - lastFrameRef.current < FRAME_INTERVAL) return
     lastFrameRef.current = now
+    
+    // Process epoch end first (marks last point before adding new ones)
+    if (pendingEpochEndRef.current) {
+      const data = pendingEpochEndRef.current
+      markLastPointAsEpochEnd()
+      addEpochResult({
+        epoch: data.epoch,
+        endPrice: data.endPrice,
+        referencePrice: data.referencePrice,
+        referenceIndex: data.referenceIndex,
+        outcome: data.outcome,
+        timestamp: data.timestamp
+      })
+      if (data.epochTimestamps) {
+        setEpochTimestamps(data.epochTimestamps)
+      }
+      pendingEpochEndRef.current = null
+    }
+    
+    // Process epoch start
+    if (pendingEpochStartRef.current) {
+      const data = pendingEpochStartRef.current
+      setRound(data.epoch)
+      setReferencePrice(data.referencePrice)
+      setTimeRemaining(data.timeRemaining)
+      if (data.epochTimestamps) {
+        setEpochTimestamps(data.epochTimestamps)
+      }
+      pendingEpochStartRef.current = null
+    }
     
     // If we have pending price data, use it
     if (pendingPriceRef.current) {
@@ -68,7 +113,7 @@ export function useBinanceWebSocket() {
       lastTimeUpdateRef.current = now
       pendingTimeRef.current = null
     }
-  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound])
+  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, addEpochResult, setEpochTimestamps, setReferencePrice])
   
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -140,26 +185,25 @@ export function useBinanceWebSocket() {
               break
               
             case 'epoch_start':
-              setRound(data.epoch)
-              setReferencePrice(data.referencePrice)
-              setTimeRemaining(data.timeRemaining)
-              if (data.epochTimestamps) {
-                setEpochTimestamps(data.epochTimestamps)
+              // Queue for next frame tick to avoid sync render blocking
+              pendingEpochStartRef.current = {
+                epoch: data.epoch,
+                referencePrice: data.referencePrice,
+                timeRemaining: data.timeRemaining,
+                epochTimestamps: data.epochTimestamps
               }
               break
               
             case 'epoch_end':
-              markLastPointAsEpochEnd()
-              addEpochResult({
+              // Queue for next frame tick to avoid sync render blocking
+              pendingEpochEndRef.current = {
                 epoch: data.epoch,
                 endPrice: data.endPrice,
                 referencePrice: data.referencePrice,
                 referenceIndex: data.referenceIndex,
                 outcome: data.outcome,
-                timestamp: data.timestamp
-              })
-              if (data.epochTimestamps) {
-                setEpochTimestamps(data.epochTimestamps)
+                timestamp: data.timestamp,
+                epochTimestamps: data.epochTimestamps
               }
               break
               
