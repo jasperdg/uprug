@@ -89,6 +89,9 @@ interface GameState {
       timeRemaining: number
       epochTimestamps?: number[]
     } | null
+    // Current bet info passed directly to avoid race condition
+    currentBet?: { direction: BetDirection; amount: number } | null
+    currentPools?: { up: number; down: number }
   }) => void
 }
 
@@ -237,7 +240,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
   
   // Batched epoch transition to avoid cascading re-renders
-  handleEpochTransition: ({ epochEnd, epochStart }) => {
+  handleEpochTransition: ({ epochEnd, epochStart, currentBet, currentPools }) => {
     const { epochHistory, pendingRound } = get()
     
     // Build the entire state update in one object
@@ -266,25 +269,38 @@ export const useGameStore = create<GameState>((set, get) => ({
         }
       }
       
-      // Check if user had a bet on this epoch
-      if (pendingRound && pendingRound.roundNumber === epochEnd.epoch - 1 && pendingRound.userBet) {
+      // Check if user had a bet - use currentBet passed directly to avoid race condition
+      // currentBet is the bet placed during the epoch that just ended
+      if (currentBet && currentPools && epochEnd.outcome) {
+        // Store in pendingRound for UI display during next epoch
+        stateUpdate.pendingRound = {
+          roundNumber: epochEnd.epoch,
+          referencePrice: epochEnd.referencePrice || 0,
+          userBet: {
+            direction: currentBet.direction,
+            amount: currentBet.amount,
+            timestamp: epochEnd.timestamp
+          },
+          pools: { ...currentPools }
+        }
+        
+        // Calculate win/loss immediately
         stateUpdate.lastOutcome = epochEnd.outcome
         stateUpdate.showResult = true
         
-        if (pendingRound.userBet.direction === epochEnd.outcome) {
-          const totalPool = pendingRound.pools.up + pendingRound.pools.down
-          const winningPool = pendingRound.pools[epochEnd.outcome!]
+        if (currentBet.direction === epochEnd.outcome) {
+          const totalPool = currentPools.up + currentPools.down
+          const winningPool = currentPools[epochEnd.outcome]
           const rake = 0.05
           if (winningPool > 0 && totalPool > 0) {
-            const calculated = (pendingRound.userBet.amount / winningPool) * totalPool * (1 - rake)
-            stateUpdate.lastPayout = isFinite(calculated) && !isNaN(calculated) ? calculated : pendingRound.userBet.amount
+            const calculated = (currentBet.amount / winningPool) * totalPool * (1 - rake)
+            stateUpdate.lastPayout = isFinite(calculated) && !isNaN(calculated) ? calculated : currentBet.amount
           } else {
-            stateUpdate.lastPayout = pendingRound.userBet.amount
+            stateUpdate.lastPayout = currentBet.amount
           }
         } else {
           stateUpdate.lastPayout = 0
         }
-        stateUpdate.pendingRound = null
       }
       
       if (epochEnd.epochTimestamps) {

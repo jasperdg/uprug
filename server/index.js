@@ -144,13 +144,37 @@ function broadcast(data) {
   });
 }
 
-// Process epoch end - SETTLEMENT USES THE ABSOLUTE LAST TICK
+// Find the price tick closest to (but not after) a target timestamp
+function findPriceAtTime(targetTime) {
+  let closestPoint = null;
+  let closestDiff = Infinity;
+  
+  for (let i = priceHistorySize - 1; i >= 0; i--) {
+    const point = priceHistoryBuffer[(priceHistoryHead + i) % MAX_PRICE_HISTORY];
+    // Only consider ticks at or before the target time
+    if (point.timestamp <= targetTime) {
+      const diff = targetTime - point.timestamp;
+      if (diff < closestDiff) {
+        closestDiff = diff;
+        closestPoint = point;
+      }
+      // Since we're going backwards, if we're past the target we can stop
+      if (diff > 1000) break; // Don't look more than 1 second back
+    }
+  }
+  
+  return closestPoint?.price || currentPrice;
+}
+
+// Process epoch end - SETTLEMENT USES THE PRICE AT EXACT EPOCH BOUNDARY
 function processEpochEnd() {
   if (lastTickPriceInEpoch === null && currentPrice === null) return;
   
   const endedEpoch = currentEpoch;
-  // Use the last tick price received in this epoch as the settlement price
-  const epochEndPrice = lastTickPriceInEpoch || currentPrice;
+  // Calculate the exact epoch boundary time (every 10th second)
+  const epochBoundaryTime = endedEpoch * EPOCH_DURATION + EPOCH_DURATION;
+  // Find the price closest to the epoch boundary
+  const epochEndPrice = findPriceAtTime(epochBoundaryTime);
   
   // Determine outcome (up or down from previous epoch's settlement price)
   let outcome = null;

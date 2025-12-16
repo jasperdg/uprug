@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { usePriceStore } from '../stores/priceStore'
 import { useGameStore } from '../stores/gameStore'
+import { useUserStore } from '../stores/userStore'
 
 // Connect to our relay server
 function getWebSocketUrl(): string {
@@ -55,8 +56,13 @@ export function useBinanceWebSocket() {
     setEpochTimestamps,
     addEpochResult,
     initializeEpochHistory,
-    handleEpochTransition
+    handleEpochTransition,
+    currentPools
   } = useGameStore()
+  
+  // Get current bet directly to pass to handleEpochTransition
+  const currentBet = useUserStore((s) => s.currentBet)
+  const clearCurrentBet = useUserStore((s) => s.clearCurrentBet)
   
   // Run at ~70fps - flush all pending updates in batched manner
   const tick = useCallback(() => {
@@ -73,6 +79,15 @@ export function useBinanceWebSocket() {
       pendingEpochEndRef.current = null
       pendingEpochStartRef.current = null
       
+      // Capture current bet before clearing (to pass to epoch transition)
+      const betToResolve = currentBet
+      const poolsSnapshot = { ...currentPools }
+      
+      // Clear the bet immediately when epoch ends
+      if (epochEndData && betToResolve) {
+        clearCurrentBet()
+      }
+      
       // Defer epoch state updates to next frame
       requestAnimationFrame(() => {
         if (epochEndData) {
@@ -80,9 +95,12 @@ export function useBinanceWebSocket() {
         }
         
         // Single batched call handles all game state updates
+        // Pass current bet directly to avoid race condition
         handleEpochTransition({
           epochEnd: epochEndData,
-          epochStart: epochStartData
+          epochStart: epochStartData,
+          currentBet: betToResolve,
+          currentPools: poolsSnapshot
         })
       })
     }
@@ -105,7 +123,7 @@ export function useBinanceWebSocket() {
       lastTimeUpdateRef.current = now
       pendingTimeRef.current = null
     }
-  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, handleEpochTransition])
+  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, handleEpochTransition, currentBet, currentPools, clearCurrentBet])
   
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
