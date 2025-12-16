@@ -39,19 +39,19 @@ function App() {
   
   return (
     <GameLayout>
-      {/* Price Chart - takes available space, minimum height on mobile */}
-      <div className="flex-1 min-h-[40vh] md:min-h-0">
+      {/* Price Chart - takes more space */}
+      <div className="flex-[2] min-h-0">
         <PriceChart />
       </div>
       
-      {/* Epoch Position Cards */}
-      <div className="flex-shrink-0 overflow-y-auto max-h-[35vh] md:max-h-[50vh]">
-        <EpochPositionCards />
-      </div>
-      
-      {/* Trade History - Expandable */}
+      {/* Epoch Position Cards + Trade History */}
       <div className="flex-shrink-0">
-        <TradeHistory />
+        <EpochPositionCards />
+        <div className="px-4">
+          <TradeHistory />
+        </div>
+        {/* Spacer for floating buttons */}
+        <div className="h-36" />
       </div>
     </GameLayout>
   )

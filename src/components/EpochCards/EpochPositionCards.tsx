@@ -187,7 +187,7 @@ export function EpochPositionCards() {
   const bettingStyles = useMemo(() => getEpochStyles(currentRound + 1), [currentRound])
   
   return (
-    <div className="flex flex-col gap-3 px-4 py-3 pb-52">
+    <div className="flex flex-col gap-3 px-4 py-3">
       {/* Resolving Position Card - bet from previous epoch, settles at end of current epoch */}
       <motion.div
         initial={false}
@@ -397,8 +397,8 @@ export function EpochPositionCards() {
         
       </div>
       
-      {/* Floating Bet Buttons - Fixed at bottom, above trade history bar */}
-      <div className="fixed bottom-14 left-4 right-4 z-50 bg-bg-secondary/95 backdrop-blur-sm border border-border rounded-2xl px-4 py-3 shadow-lg">
+      {/* Floating Bet Buttons - Fixed at bottom */}
+      <div className="fixed bottom-3 left-4 right-4 z-50 bg-bg-secondary/95 backdrop-blur-sm border border-border rounded-2xl px-4 py-3 shadow-lg">
         {/* Stake selector row */}
         <div className="flex gap-2 mb-3">
           {PRESET_AMOUNTS.map((amount) => (
