@@ -81,10 +81,13 @@ const ReferencePriceOverlay = memo(function ReferencePriceOverlay({
   
   return (
     <div 
-      className="absolute left-0 right-0 pointer-events-none"
-      style={{ top: `${yPercent}%` }}
+      className="absolute left-0 right-0 pointer-events-none flex items-center"
+      style={{ top: `${yPercent}%`, transform: 'translateY(-50%)' }}
     >
-      <div className="border-t border-dashed border-text-primary/30 w-full" />
+      <div className="flex-1 border-t border-dashed border-text-primary/30" />
+      <span className="ml-1 text-xs font-mono text-text-primary/50 bg-bg-primary/80 px-1 rounded">
+        ${referencePrice.toFixed(4)}
+      </span>
     </div>
   )
 })
@@ -319,14 +322,6 @@ export function PriceChart() {
           <span>{formatPercentage(percentChange)}</span>
         </div>
       </div>
-      
-      {/* Reference price indicator */}
-      {referencePrice && (
-        <div className="absolute top-14 left-4 text-xs text-text-secondary flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-text-primary animate-pulse" />
-          <span>Ref: ${formatPrice(referencePrice)}</span>
-        </div>
-      )}
       
       {/* Chart */}
       <div className="flex-1 min-h-0 relative">

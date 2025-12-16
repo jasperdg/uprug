@@ -39,7 +39,7 @@ function App() {
   return (
     <GameLayout>
       {/* Price Chart - takes more space */}
-      <div className="flex-[2] min-h-[200px]">
+      <div className="flex-[2] min-h-[200px] md:max-h-[40vh]">
         <PriceChart />
       </div>
       
