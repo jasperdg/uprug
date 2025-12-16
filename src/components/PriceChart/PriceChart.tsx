@@ -6,6 +6,7 @@ import {
   YAxis,
   ResponsiveContainer,
   ReferenceLine,
+  ReferenceArea,
 } from 'recharts'
 import { usePriceStore } from '../../stores/priceStore'
 import { useGameStore } from '../../stores/gameStore'
@@ -14,6 +15,12 @@ import { formatPrice, formatPercentage, calculatePercentChange } from '../../uti
 interface EpochLine {
   timestamp: number
   isPast: boolean
+}
+
+interface EpochZone {
+  start: number
+  end: number
+  type: 'resolving' | 'betting' | 'future'
 }
 
 // Memoized chart component
@@ -26,6 +33,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   referencePrice,
   resolvedMarker,
   epochLines,
+  epochZones,
 }: {
   chartData: Array<{ timestamp: number; price: number }>
   minPrice: number
@@ -35,6 +43,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   referencePrice: number | null
   resolvedMarker: { referencePrice: number; referenceIndex: number; outcome: string } | null
   epochLines: EpochLine[]
+  epochZones: EpochZone[]
 }) {
   const markerColor = resolvedMarker?.outcome === 'up' 
     ? 'var(--accent-up)' 
@@ -56,6 +65,23 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           allowDataOverflow
         />
         <YAxis domain={[minPrice, maxPrice]} hide />
+        
+        {/* Epoch zone backgrounds */}
+        {epochZones.map((zone, i) => (
+          <ReferenceArea
+            key={`zone-${i}-${zone.start}`}
+            x1={zone.start}
+            x2={zone.end}
+            fill={
+              zone.type === 'resolving' 
+                ? 'rgba(255, 160, 60, 0.08)' // Warm amber for resolving
+                : zone.type === 'betting'
+                  ? 'rgba(120, 60, 180, 0.12)' // Dark purple for betting
+                  : 'rgba(60, 60, 80, 0.05)' // Subtle gray for future
+            }
+            fillOpacity={1}
+          />
+        ))}
         
         {/* Epoch boundary vertical lines from server timestamps */}
         {epochLines.map((line, i) => (
@@ -133,7 +159,7 @@ export function PriceChart() {
   const isUp = percentChange >= 0
   
   // Transform price history to use timestamps as x-axis
-  const { chartData, epochLines, xDomain } = useMemo(() => {
+  const { chartData, epochLines, epochZones, xDomain } = useMemo(() => {
     const data: Array<{ timestamp: number; price: number }> = []
     
     // Add actual price data with timestamps
@@ -163,9 +189,54 @@ export function PriceChart() {
         isPast: ts <= lastTimestamp
       }))
     
+    // Create epoch zones for background highlighting
+    const zones: EpochZone[] = []
+    const visibleTimestamps = epochTimestamps.filter(ts => ts >= domainStart - 10000 && ts <= domainEnd + 10000)
+    
+    for (let i = 0; i < visibleTimestamps.length; i++) {
+      const epochEnd = visibleTimestamps[i]
+      const epochStart = epochEnd - 10000 // 10 second epochs
+      
+      // Clamp to visible domain
+      const zoneStart = Math.max(epochStart, domainStart)
+      const zoneEnd = Math.min(epochEnd, domainEnd)
+      
+      if (zoneStart >= zoneEnd) continue
+      
+      // Determine zone type based on current time
+      let zoneType: 'resolving' | 'betting' | 'future'
+      
+      if (epochEnd <= lastTimestamp) {
+        // This epoch has already ended - it's in the past (no special highlight)
+        continue
+      } else if (epochStart <= lastTimestamp && epochEnd > lastTimestamp) {
+        // Current time is within this epoch - this is the resolving epoch
+        zoneType = 'resolving'
+      } else if (epochStart > lastTimestamp) {
+        // Find the next epoch after resolving
+        const resolvingEpochEnd = visibleTimestamps.find(ts => ts > lastTimestamp)
+        if (resolvingEpochEnd && epochStart === resolvingEpochEnd) {
+          // This is the betting open epoch (next one after resolving)
+          zoneType = 'betting'
+        } else {
+          // Future epochs
+          zoneType = 'future'
+        }
+      } else {
+        continue
+      }
+      
+      zones.push({
+        start: zoneStart,
+        end: zoneEnd,
+        type: zoneType
+      })
+    }
+    
     return { 
       chartData: data, 
       epochLines: lines,
+      epochZones: zones,
       xDomain: domain
     }
   }, [priceHistory, epochTimestamps])
@@ -220,6 +291,7 @@ export function PriceChart() {
           referencePrice={referencePrice}
           resolvedMarker={resolvedMarker}
           epochLines={epochLines}
+          epochZones={epochZones}
         />
       </div>
       
