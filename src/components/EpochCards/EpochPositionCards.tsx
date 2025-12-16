@@ -10,6 +10,17 @@ import confetti from 'canvas-confetti'
 
 const PRESET_AMOUNTS = [1, 5, 10, 25]
 
+// Helper to get epoch color based on epoch number (odd = blue, even = purple)
+function getEpochStyles(epochNumber: number) {
+  const isOdd = epochNumber % 2 === 1
+  return {
+    background: isOdd
+      ? 'linear-gradient(135deg, rgba(60, 140, 180, 0.12) 0%, rgba(40, 120, 160, 0.06) 100%)'
+      : 'linear-gradient(135deg, rgba(120, 60, 180, 0.12) 0%, rgba(90, 40, 150, 0.06) 100%)',
+    borderClass: isOdd ? 'border-cyan-500/20' : 'border-purple-500/20',
+  }
+}
+
 export function EpochPositionCards() {
   // Use selectors to minimize re-renders
   const currentRound = useGameStore((s) => s.currentRound)
@@ -150,6 +161,10 @@ export function EpochPositionCards() {
   }
   
   
+  // Get styles for both cards based on epoch numbers
+  const resolvingStyles = getEpochStyles(currentRound - 1)
+  const bettingStyles = getEpochStyles(currentRound)
+  
   return (
     <div className="flex flex-col gap-3 px-4 py-3">
       {/* Current Epoch Card - Resolving */}
@@ -169,7 +184,7 @@ export function EpochPositionCards() {
             ? 'rgba(0, 210, 106, 0.15)'
             : explosionState === 'loss'
               ? 'rgba(255, 68, 68, 0.15)'
-              : 'linear-gradient(135deg, rgba(255, 160, 60, 0.08) 0%, rgba(255, 120, 40, 0.04) 100%)'
+              : resolvingStyles.background
         }}
         className={`
           relative rounded-xl p-4 overflow-hidden
@@ -177,7 +192,7 @@ export function EpochPositionCards() {
             ? 'border-2 border-accent-up' 
             : explosionState === 'loss'
               ? 'border-2 border-accent-down'
-              : 'border border-amber-500/20'
+              : `border ${resolvingStyles.borderClass}`
           }
         `}
       >
@@ -298,9 +313,9 @@ export function EpochPositionCards() {
       {/* Next Epoch Card - Betting */}
       <div
         style={{
-          background: 'linear-gradient(135deg, rgba(120, 60, 180, 0.12) 0%, rgba(90, 40, 150, 0.06) 100%)'
+          background: bettingStyles.background
         }}
-        className="rounded-xl p-4 border border-purple-500/20"
+        className={`rounded-xl p-4 border ${bettingStyles.borderClass}`}
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-3">

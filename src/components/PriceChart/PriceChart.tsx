@@ -21,6 +21,14 @@ interface EpochZone {
   start: number
   end: number
   type: 'resolving' | 'betting' | 'future'
+  epochNumber?: number
+}
+
+// Helper to get epoch color based on epoch number (odd = blue, even = purple)
+function getEpochColor(epochNumber: number): string {
+  return epochNumber % 2 === 1
+    ? 'rgba(60, 140, 180, 0.12)'  // Teal blue for odd epochs
+    : 'rgba(120, 60, 180, 0.12)' // Purple for even epochs
 }
 
 // Extracted dot renderer to avoid recreating function on every render
@@ -100,13 +108,11 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
             x1={zone.start}
             x2={zone.end}
             fill={
-              zone.type === 'resolving' 
-                ? 'rgba(255, 160, 60, 0.08)' // Warm amber for resolving
-                : zone.type === 'betting'
-                  ? 'rgba(120, 60, 180, 0.12)' // Dark purple for betting
-                  : 'rgba(60, 60, 80, 0.05)' // Subtle gray for future
+              zone.epochNumber !== undefined
+                ? getEpochColor(zone.epochNumber) // Alternating blue/purple based on epoch
+                : 'rgba(60, 60, 80, 0.05)'
             }
-            fillOpacity={1}
+            fillOpacity={zone.type === 'future' ? 0.4 : 1} // Dimmer for future epochs
           />
         ))}
         
@@ -149,7 +155,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
 
 export function PriceChart() {
   const { priceHistory, currentPrice, previousPrice } = usePriceStore()
-  const { referencePrice, epochTimestamps } = useGameStore()
+  const { referencePrice, epochTimestamps, currentRound } = useGameStore()
   
   const percentChange = useMemo(() => {
     if (referencePrice) {
@@ -208,6 +214,10 @@ export function PriceChart() {
     const zones: EpochZone[] = []
     const visibleTimestamps = epochTimestamps.filter(ts => ts >= domainStart - 10000 && ts <= domainEnd + 10000)
     
+    // The resolving epoch is currentRound - 1, betting is currentRound
+    const resolvingEpochNumber = currentRound - 1
+    const bettingEpochNumber = currentRound
+    
     for (let i = 0; i < visibleTimestamps.length; i++) {
       const epochEnd = visibleTimestamps[i]
       const epochStart = epochEnd - 10000 // 10 second epochs
@@ -218,8 +228,9 @@ export function PriceChart() {
       
       if (zoneStart >= zoneEnd) continue
       
-      // Determine zone type based on current time
+      // Determine zone type and epoch number based on current time
       let zoneType: 'resolving' | 'betting' | 'future'
+      let epochNumber: number | undefined
       
       if (epochEnd <= lastTimestamp) {
         // This epoch has already ended - it's in the past (no special highlight)
@@ -227,14 +238,18 @@ export function PriceChart() {
       } else if (epochStart <= lastTimestamp && epochEnd > lastTimestamp) {
         // Current time is within this epoch - this is the resolving epoch
         zoneType = 'resolving'
+        epochNumber = resolvingEpochNumber
       } else if (epochStart > lastTimestamp) {
         // Find the next epoch after resolving
         const resolvingEpochEnd = visibleTimestamps.find(ts => ts > lastTimestamp)
         if (resolvingEpochEnd && epochStart === resolvingEpochEnd) {
           // This is the betting open epoch (next one after resolving)
           zoneType = 'betting'
+          epochNumber = bettingEpochNumber
         } else {
-          // Future epochs
+          // Future epochs - calculate epoch number relative to current
+          const epochsAhead = Math.round((epochEnd - resolvingEpochEnd!) / 10000)
+          epochNumber = bettingEpochNumber + epochsAhead
           zoneType = 'future'
         }
       } else {
@@ -244,7 +259,8 @@ export function PriceChart() {
       zones.push({
         start: zoneStart,
         end: zoneEnd,
-        type: zoneType
+        type: zoneType,
+        epochNumber
       })
     }
     
@@ -252,7 +268,7 @@ export function PriceChart() {
       epochLines: lines,
       epochZones: zones
     }
-  }, [epochTimestamps, domainStart, domainEnd, lastTimestamp])
+  }, [epochTimestamps, domainStart, domainEnd, lastTimestamp, currentRound])
   
   // Calculate Y-axis domain
   const [minPrice, maxPrice] = useMemo(() => {
