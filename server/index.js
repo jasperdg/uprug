@@ -176,7 +176,7 @@ setInterval(() => {
   }
   
   // Broadcast time update every 100ms
-  if (Date.now() % 100 < 50) {
+  if (Date.now() % 100 < 20) {
     broadcast({
       type: 'time',
       epoch: currentEpoch,
