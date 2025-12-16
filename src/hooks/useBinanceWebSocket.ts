@@ -37,6 +37,12 @@ export function useBinanceWebSocket() {
     outcome: 'up' | 'down' | null
     timestamp: number
     epochTimestamps?: number[]
+    boundaryPoint?: {
+      price: number
+      timestamp: number
+      epoch: number
+      isEpochEnd: boolean
+    }
   } | null>(null)
   const pendingEpochStartRef = useRef<{
     epoch: number
@@ -91,7 +97,18 @@ export function useBinanceWebSocket() {
       // Defer epoch state updates to next frame
       requestAnimationFrame(() => {
         if (epochEndData) {
-          markLastPointAsEpochEnd()
+          // Add the boundary point from server to ensure chart aligns with epoch marker
+          if (epochEndData.boundaryPoint) {
+            addPricePoint({
+              price: epochEndData.boundaryPoint.price,
+              timestamp: epochEndData.boundaryPoint.timestamp,
+              epoch: epochEndData.boundaryPoint.epoch,
+              isEpochEnd: true
+            })
+          } else {
+            // Fallback: mark the last point as epoch end
+            markLastPointAsEpochEnd()
+          }
         }
         
         // Single batched call handles all game state updates
@@ -213,7 +230,8 @@ export function useBinanceWebSocket() {
                 referenceIndex: data.referenceIndex,
                 outcome: data.outcome,
                 timestamp: data.timestamp,
-                epochTimestamps: data.epochTimestamps
+                epochTimestamps: data.epochTimestamps,
+                boundaryPoint: data.boundaryPoint
               }
               break
               

@@ -190,7 +190,7 @@ function processEpochEnd() {
     startPrice: epochStartPrice,
     endPrice: epochEndPrice,
     outcome,
-    timestamp: Date.now()
+    timestamp: epochBoundaryTime // Use exact boundary time, not Date.now()
   };
   
   // Store in history
@@ -199,11 +199,22 @@ function processEpochEnd() {
     epochHistory.shift();
   }
   
-  // Mark epoch boundary in price history (using ring buffer)
-  markLastPricePointAsEpochEnd(epochResult);
+  // Add synthetic price point at EXACT epoch boundary time
+  // This ensures the chart line aligns with the epoch vertical marker
+  const boundaryPoint = {
+    price: epochEndPrice,
+    timestamp: epochBoundaryTime, // Exact epoch boundary time
+    epoch: endedEpoch,
+    isEpochEnd: true,
+    epochResult: epochResult
+  };
+  addToPriceHistory(boundaryPoint);
   
   // Find the index of the reference price point in history
   const referenceIndex = findReferenceIndex(endedEpoch);
+  
+  // The boundary point is now the last point in history
+  const boundaryPointIndex = priceHistorySize - 1;
   
   // Cache values before updating state
   const previousReferencePrice = lastEpochEndPrice;
@@ -227,7 +238,14 @@ function processEpochEnd() {
     referenceIndex: referenceIndex,
     outcome,
     timestamp: now,
-    epochTimestamps
+    epochTimestamps,
+    // Include boundary point so client chart aligns with epoch marker
+    boundaryPoint: {
+      price: epochEndPrice,
+      timestamp: epochBoundaryTime,
+      epoch: endedEpoch,
+      isEpochEnd: true
+    }
   });
   
   // Broadcast new epoch start
