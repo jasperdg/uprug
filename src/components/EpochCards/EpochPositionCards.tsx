@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useGameStore } from '../../stores/gameStore'
+import { useGameStore, useSeconds } from '../../stores/gameStore'
 import { useUserStore } from '../../stores/userStore'
 import { useHaptics } from '../../hooks/useHaptics'
 import { useSoundEffects } from '../../hooks/useSoundEffects'
@@ -13,7 +13,7 @@ const PRESET_AMOUNTS = [1, 5, 10, 25]
 export function EpochPositionCards() {
   // Use selectors to minimize re-renders
   const currentRound = useGameStore((s) => s.currentRound)
-  const timeRemaining = useGameStore((s) => s.timeRemaining)
+  const seconds = useSeconds() // Derived selector - only re-renders when second changes
   const roundPhase = useGameStore((s) => s.roundPhase)
   const currentPools = useGameStore((s) => s.currentPools)
   const pendingRound = useGameStore((s) => s.pendingRound)
@@ -152,7 +152,6 @@ export function EpochPositionCards() {
     }
   }
   
-  const seconds = Math.ceil(timeRemaining / 1000)
   const isLocked = roundPhase === 'locked' || roundPhase === 'resolving'
   
   return (
@@ -301,8 +300,7 @@ export function EpochPositionCards() {
         </motion.div>
       
       {/* Next Epoch Card - Betting */}
-      <motion.div
-        layout
+      <div
         style={{
           background: 'linear-gradient(135deg, rgba(120, 60, 180, 0.12) 0%, rgba(90, 40, 150, 0.06) 100%)'
         }}
@@ -482,7 +480,7 @@ export function EpochPositionCards() {
         <div className="mt-3 text-center text-xs text-text-secondary">
           Balance: <span className="font-mono font-bold text-text-primary">{formatCurrency(balance)}</span>
         </div>
-      </motion.div>
+      </div>
     </div>
   )
 }

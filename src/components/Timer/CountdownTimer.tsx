@@ -1,9 +1,9 @@
-import { useGameStore } from '../../stores/gameStore'
+import { useGameStore, useSeconds } from '../../stores/gameStore'
 
 export function CountdownTimer() {
-  const { timeRemaining, roundPhase } = useGameStore()
-  
-  const seconds = Math.ceil(timeRemaining / 1000)
+  const roundPhase = useGameStore((s) => s.roundPhase)
+  const timeRemaining = useGameStore((s) => s.timeRemaining)
+  const seconds = useSeconds() // Derived selector - only re-renders when second changes
   const progress = timeRemaining / 10000 // 0 to 1
   
   // Color based on urgency

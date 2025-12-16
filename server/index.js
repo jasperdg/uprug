@@ -23,9 +23,61 @@ let lastEpochEndPrice = null; // This is the settlement price from the previous 
 let epochHistory = []; // Store recent epoch results
 const MAX_EPOCH_HISTORY = 20;
 
-// Price history for chart (last ~60 seconds)
-let priceHistory = [];
+// Price history for chart (last ~60 seconds) - using ring buffer for O(1) operations
 const MAX_PRICE_HISTORY = 600; // 10 updates/sec * 60 seconds
+const priceHistoryBuffer = new Array(MAX_PRICE_HISTORY);
+let priceHistoryHead = 0; // Points to oldest element
+let priceHistorySize = 0; // Current number of elements
+
+// Ring buffer helper functions
+function addToPriceHistory(point) {
+  const index = (priceHistoryHead + priceHistorySize) % MAX_PRICE_HISTORY;
+  priceHistoryBuffer[index] = point;
+  
+  if (priceHistorySize < MAX_PRICE_HISTORY) {
+    priceHistorySize++;
+  } else {
+    // Buffer is full, move head forward (oldest gets overwritten)
+    priceHistoryHead = (priceHistoryHead + 1) % MAX_PRICE_HISTORY;
+  }
+}
+
+function getPriceHistoryArray() {
+  const result = [];
+  for (let i = 0; i < priceHistorySize; i++) {
+    result.push(priceHistoryBuffer[(priceHistoryHead + i) % MAX_PRICE_HISTORY]);
+  }
+  return result;
+}
+
+function getLastPricePoint() {
+  if (priceHistorySize === 0) return null;
+  const lastIndex = (priceHistoryHead + priceHistorySize - 1) % MAX_PRICE_HISTORY;
+  return priceHistoryBuffer[lastIndex];
+}
+
+function markLastPricePointAsEpochEnd(epochResult) {
+  if (priceHistorySize === 0) return;
+  const lastIndex = (priceHistoryHead + priceHistorySize - 1) % MAX_PRICE_HISTORY;
+  priceHistoryBuffer[lastIndex].isEpochEnd = true;
+  priceHistoryBuffer[lastIndex].epochResult = epochResult;
+}
+
+function getOldestTimestamp() {
+  if (priceHistorySize === 0) return Date.now();
+  return priceHistoryBuffer[priceHistoryHead].timestamp;
+}
+
+function findReferenceIndex(epoch) {
+  // Search backwards for a point with epoch < specified epoch
+  for (let i = priceHistorySize - 1; i >= 0; i--) {
+    const point = priceHistoryBuffer[(priceHistoryHead + i) % MAX_PRICE_HISTORY];
+    if (point.epoch < epoch) {
+      return i; // Return logical index
+    }
+  }
+  return -1;
+}
 
 // Get current epoch number
 function getEpochNumber() {
@@ -44,7 +96,7 @@ function getEpochTimestamps(count = 10) {
   const timestamps = [];
   
   // Add past epochs that are in our price history
-  const oldestTimestamp = priceHistory.length > 0 ? priceHistory[0].timestamp : now;
+  const oldestTimestamp = getOldestTimestamp();
   let pastEpochStart = currentEpochStart - EPOCH_DURATION;
   
   // Go back to find epochs in history
@@ -123,32 +175,15 @@ function processEpochEnd() {
     epochHistory.shift();
   }
   
-  // Mark epoch boundary in price history
-  if (priceHistory.length > 0) {
-    priceHistory[priceHistory.length - 1].isEpochEnd = true;
-    priceHistory[priceHistory.length - 1].epochResult = epochResult;
-  }
+  // Mark epoch boundary in price history (using ring buffer)
+  markLastPricePointAsEpochEnd(epochResult);
   
   // Find the index of the reference price point in history
-  let referenceIndex = -1;
-  for (let i = priceHistory.length - 1; i >= 0; i--) {
-    if (priceHistory[i].epoch < endedEpoch) {
-      referenceIndex = i;
-      break;
-    }
-  }
+  const referenceIndex = findReferenceIndex(endedEpoch);
   
-  // Broadcast epoch end to all clients with reference price info
-  broadcast({
-    type: 'epoch_end',
-    epoch: endedEpoch,
-    endPrice: epochEndPrice,
-    referencePrice: lastEpochEndPrice,
-    referenceIndex: referenceIndex,
-    outcome,
-    timestamp: Date.now(),
-    epochTimestamps: getEpochTimestamps()
-  });
+  // Cache values before updating state
+  const previousReferencePrice = lastEpochEndPrice;
+  const now = Date.now();
   
   // Update state for next epoch
   lastEpochEndPrice = epochEndPrice; // This becomes the reference price for next epoch
@@ -156,14 +191,29 @@ function processEpochEnd() {
   epochStartPrice = currentPrice;
   lastTickPriceInEpoch = null; // Reset for new epoch
   
+  // Calculate epoch timestamps once for both broadcasts
+  const epochTimestamps = getEpochTimestamps();
+  
+  // Broadcast epoch end to all clients with reference price info
+  broadcast({
+    type: 'epoch_end',
+    epoch: endedEpoch,
+    endPrice: epochEndPrice,
+    referencePrice: previousReferencePrice,
+    referenceIndex: referenceIndex,
+    outcome,
+    timestamp: now,
+    epochTimestamps
+  });
+  
   // Broadcast new epoch start
   broadcast({
     type: 'epoch_start',
     epoch: currentEpoch,
-    referencePrice: lastEpochEndPrice,
+    referencePrice: lastEpochEndPrice, // Now points to epochEndPrice
     timeRemaining: getTimeRemaining(),
-    timestamp: Date.now(),
-    epochTimestamps: getEpochTimestamps()
+    timestamp: now,
+    epochTimestamps
   });
 }
 
@@ -229,16 +279,13 @@ function connectToPyth() {
               epochStartPrice = price;
             }
             
-            // Add to price history
+            // Add to price history (ring buffer - O(1) operation)
             const pricePoint = {
               price,
               timestamp,
               epoch: currentEpoch
             };
-            priceHistory.push(pricePoint);
-            if (priceHistory.length > MAX_PRICE_HISTORY) {
-              priceHistory.shift();
-            }
+            addToPriceHistory(pricePoint);
             
             // Broadcast price to all clients
             broadcast({
@@ -274,13 +321,14 @@ wss.on('connection', (ws, req) => {
   console.log(`Client connected: ${clientIp} (Total: ${wss.clients.size})`);
   
   // Send initial state with full price history and epoch timestamps
+  const fullHistory = getPriceHistoryArray();
   ws.send(JSON.stringify({
     type: 'init',
     currentPrice,
     currentEpoch,
     timeRemaining: getTimeRemaining(),
     referencePrice: lastEpochEndPrice,
-    priceHistory: priceHistory.slice(-400), // Last 400 points (~40 seconds)
+    priceHistory: fullHistory.slice(-400), // Last 400 points (~40 seconds)
     epochHistory: epochHistory.slice(-10), // Last 10 epochs
     epochTimestamps: getEpochTimestamps(), // Current + next epochs
     pythConnected: pythWs && pythWs.readyState === WebSocket.OPEN

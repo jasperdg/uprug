@@ -1,4 +1,4 @@
-import { useMemo, memo } from 'react'
+import { useMemo, memo, useCallback } from 'react'
 import {
   LineChart,
   Line,
@@ -23,6 +23,34 @@ interface EpochZone {
   type: 'resolving' | 'betting' | 'future'
 }
 
+// Extracted dot renderer to avoid recreating function on every render
+interface DotProps {
+  cx?: number
+  cy?: number
+  payload?: { timestamp: number; price: number }
+}
+
+const ChartDot = memo(function ChartDot({ 
+  cx, 
+  cy, 
+  payload, 
+  lastTimestamp, 
+  isUp 
+}: DotProps & { lastTimestamp: number; isUp: boolean }) {
+  if (!payload || !cx || !cy) return null
+  if (payload.timestamp !== lastTimestamp) return null
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      r={4}
+      fill={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
+      stroke="var(--bg-primary)"
+      strokeWidth={2}
+    />
+  )
+})
+
 // Memoized chart component
 const MemoizedLineChart = memo(function MemoizedLineChart({
   chartData,
@@ -33,6 +61,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   referencePrice,
   epochLines,
   epochZones,
+  lastTimestamp,
 }: {
   chartData: Array<{ timestamp: number; price: number }>
   minPrice: number
@@ -42,8 +71,12 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   referencePrice: number | null
   epochLines: EpochLine[]
   epochZones: EpochZone[]
+  lastTimestamp: number
 }) {
-  const lastDataPoint = chartData[chartData.length - 1]
+  // Stable dot renderer using useCallback
+  const renderDot = useCallback((props: DotProps) => (
+    <ChartDot {...props} lastTimestamp={lastTimestamp} isUp={isUp} />
+  ), [lastTimestamp, isUp])
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -105,21 +138,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           dataKey="price"
           stroke={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
           strokeWidth={2}
-          dot={(props: { cx?: number; cy?: number; payload?: { timestamp: number; price: number } }) => {
-            // Only render dot on the last data point
-            if (!props.payload || !props.cx || !props.cy) return null
-            if (props.payload.timestamp !== lastDataPoint?.timestamp) return null
-            return (
-              <circle
-                cx={props.cx}
-                cy={props.cy}
-                r={4}
-                fill={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
-                stroke="var(--bg-primary)"
-                strokeWidth={2}
-              />
-            )
-          }}
+          dot={renderDot}
           activeDot={false}
           isAnimationActive={false}
         />
@@ -141,16 +160,16 @@ export function PriceChart() {
   
   const isUp = percentChange >= 0
   
-  // Transform price history to use timestamps as x-axis
-  const { chartData, epochLines, epochZones, xDomain } = useMemo(() => {
+  // Compute chart domain and data (changes frequently with price updates)
+  const { chartData, xDomain, lastTimestamp } = useMemo(() => {
     const now = Date.now()
-    const lastTimestamp = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1].timestamp : now
+    const lastTs = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1].timestamp : now
     
     // Fixed time window: 20 seconds past, 20 seconds future
     const PAST_WINDOW = 20000
     const FUTURE_WINDOW = 20000
-    const domainStart = lastTimestamp - PAST_WINDOW
-    const domainEnd = lastTimestamp + FUTURE_WINDOW
+    const domainStart = lastTs - PAST_WINDOW
+    const domainEnd = lastTs + FUTURE_WINDOW
     const domain: [number, number] = [domainStart, domainEnd]
     
     // Only include data points within the visible window
@@ -164,6 +183,19 @@ export function PriceChart() {
       }
     }
     
+    return { 
+      chartData: data, 
+      xDomain: domain,
+      lastTimestamp: lastTs
+    }
+  }, [priceHistory])
+  
+  // Extract domain bounds as primitives for stable dependency
+  const domainStart = xDomain[0]
+  const domainEnd = xDomain[1]
+  
+  // Compute epoch lines and zones separately (changes less frequently)
+  const { epochLines, epochZones } = useMemo(() => {
     // Convert epoch timestamps to epoch lines
     const lines: EpochLine[] = epochTimestamps
       .filter(ts => ts >= domainStart && ts <= domainEnd)
@@ -217,12 +249,10 @@ export function PriceChart() {
     }
     
     return { 
-      chartData: data, 
       epochLines: lines,
-      epochZones: zones,
-      xDomain: domain
+      epochZones: zones
     }
-  }, [priceHistory, epochTimestamps])
+  }, [epochTimestamps, domainStart, domainEnd, lastTimestamp])
   
   // Calculate Y-axis domain
   const [minPrice, maxPrice] = useMemo(() => {
@@ -274,6 +304,7 @@ export function PriceChart() {
           referencePrice={referencePrice}
           epochLines={epochLines}
           epochZones={epochZones}
+          lastTimestamp={lastTimestamp}
         />
       </div>
       

@@ -54,7 +54,8 @@ export function useBinanceWebSocket() {
     setReferencePrice,
     setEpochTimestamps,
     addEpochResult,
-    initializeEpochHistory
+    initializeEpochHistory,
+    handleEpochTransition
   } = useGameStore()
   
   // Run at ~70fps - flush all pending updates in batched manner
@@ -76,27 +77,13 @@ export function useBinanceWebSocket() {
       requestAnimationFrame(() => {
         if (epochEndData) {
           markLastPointAsEpochEnd()
-          addEpochResult({
-            epoch: epochEndData.epoch,
-            endPrice: epochEndData.endPrice,
-            referencePrice: epochEndData.referencePrice,
-            referenceIndex: epochEndData.referenceIndex,
-            outcome: epochEndData.outcome,
-            timestamp: epochEndData.timestamp
-          })
-          if (epochEndData.epochTimestamps) {
-            setEpochTimestamps(epochEndData.epochTimestamps)
-          }
         }
         
-        if (epochStartData) {
-          setRound(epochStartData.epoch)
-          setReferencePrice(epochStartData.referencePrice)
-          setTimeRemaining(epochStartData.timeRemaining)
-          if (epochStartData.epochTimestamps) {
-            setEpochTimestamps(epochStartData.epochTimestamps)
-          }
-        }
+        // Single batched call handles all game state updates
+        handleEpochTransition({
+          epochEnd: epochEndData,
+          epochStart: epochStartData
+        })
       })
     }
     
@@ -118,7 +105,7 @@ export function useBinanceWebSocket() {
       lastTimeUpdateRef.current = now
       pendingTimeRef.current = null
     }
-  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, addEpochResult, setEpochTimestamps, setReferencePrice])
+  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, handleEpochTransition])
   
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

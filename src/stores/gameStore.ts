@@ -73,7 +73,27 @@ interface GameState {
   resolveRound: (outcome: BetDirection, payout: number | null, referencePrice: number, referenceIndex: number) => void
   clearResult: () => void
   simulateOtherBets: () => void
+  handleEpochTransition: (params: {
+    epochEnd?: {
+      epoch: number
+      endPrice: number
+      referencePrice: number | null
+      referenceIndex: number
+      outcome: 'up' | 'down' | null
+      timestamp: number
+      epochTimestamps?: number[]
+    } | null
+    epochStart?: {
+      epoch: number
+      referencePrice: number
+      timeRemaining: number
+      epochTimestamps?: number[]
+    } | null
+  }) => void
 }
+
+// Derived selector for seconds - only updates when second changes (reduces re-renders 10x)
+export const useSeconds = () => useGameStore((s) => Math.ceil(s.timeRemaining / 1000))
 
 export const useGameStore = create<GameState>((set, get) => ({
   currentRound: 0,
@@ -214,5 +234,82 @@ export const useGameStore = create<GameState>((set, get) => ({
         down: currentPools.down + downBet,
       },
     })
+  },
+  
+  // Batched epoch transition to avoid cascading re-renders
+  handleEpochTransition: ({ epochEnd, epochStart }) => {
+    const { epochHistory, pendingRound } = get()
+    
+    // Build the entire state update in one object
+    const stateUpdate: Partial<GameState> = {}
+    
+    // Process epoch end
+    if (epochEnd) {
+      const newHistory = [...epochHistory, {
+        epoch: epochEnd.epoch,
+        endPrice: epochEnd.endPrice,
+        referencePrice: epochEnd.referencePrice,
+        referenceIndex: epochEnd.referenceIndex,
+        outcome: epochEnd.outcome,
+        timestamp: epochEnd.timestamp,
+      }].slice(-20)
+      
+      stateUpdate.epochHistory = newHistory
+      
+      // Update resolved marker for chart
+      if (epochEnd.outcome && epochEnd.referencePrice !== null) {
+        stateUpdate.resolvedMarker = {
+          referencePrice: epochEnd.referencePrice,
+          referenceIndex: epochEnd.referenceIndex,
+          outcome: epochEnd.outcome,
+          timestamp: epochEnd.timestamp,
+        }
+      }
+      
+      // Check if user had a bet on this epoch
+      if (pendingRound && pendingRound.roundNumber === epochEnd.epoch - 1 && pendingRound.userBet) {
+        stateUpdate.lastOutcome = epochEnd.outcome
+        stateUpdate.showResult = true
+        
+        if (pendingRound.userBet.direction === epochEnd.outcome) {
+          const totalPool = pendingRound.pools.up + pendingRound.pools.down
+          const winningPool = pendingRound.pools[epochEnd.outcome!]
+          const rake = 0.05
+          if (winningPool > 0 && totalPool > 0) {
+            const calculated = (pendingRound.userBet.amount / winningPool) * totalPool * (1 - rake)
+            stateUpdate.lastPayout = isFinite(calculated) && !isNaN(calculated) ? calculated : pendingRound.userBet.amount
+          } else {
+            stateUpdate.lastPayout = pendingRound.userBet.amount
+          }
+        } else {
+          stateUpdate.lastPayout = 0
+        }
+        stateUpdate.pendingRound = null
+      }
+      
+      if (epochEnd.epochTimestamps) {
+        stateUpdate.epochTimestamps = epochEnd.epochTimestamps
+      }
+    }
+    
+    // Process epoch start
+    if (epochStart) {
+      stateUpdate.currentRound = epochStart.epoch
+      stateUpdate.referencePrice = epochStart.referencePrice
+      stateUpdate.timeRemaining = epochStart.timeRemaining
+      
+      // Determine phase based on time remaining
+      const phase: RoundPhase = epochStart.timeRemaining < 500 ? 'resolving' 
+        : epochStart.timeRemaining < 2000 ? 'locked' 
+        : 'betting'
+      stateUpdate.roundPhase = phase
+      
+      if (epochStart.epochTimestamps) {
+        stateUpdate.epochTimestamps = epochStart.epochTimestamps
+      }
+    }
+    
+    // Single atomic set() call
+    set(stateUpdate)
   },
 }))

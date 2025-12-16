@@ -136,12 +136,12 @@ export const usePriceStore = create<PriceState>((set, get) => ({
     const { priceHistory } = get()
     if (priceHistory.length === 0) return
     
-    // Mutate last point directly (safe since we're in the store)
     const lastPoint = priceHistory[priceHistory.length - 1]
     if (lastPoint && !lastPoint.isEpochEnd) {
-      lastPoint.isEpochEnd = true
-      // Trigger re-render with same array reference but updated
-      set({ priceHistory: priceHistory })
+      // Create new array with updated last point to properly trigger re-render
+      const newHistory = priceHistory.slice(0, -1)
+      newHistory.push({ ...lastPoint, isEpochEnd: true })
+      set({ priceHistory: newHistory })
     }
   },
 }))
