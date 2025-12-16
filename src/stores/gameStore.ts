@@ -92,7 +92,7 @@ interface GameState {
       epochTimestamps?: number[]
     } | null
     // Current bet info passed directly to avoid race condition
-    currentBet?: { direction: BetDirection; amount: number } | null
+    currentBet?: { direction: BetDirection; amount: number; spread?: number } | null
     currentPools?: { up: number; down: number }
   }) => void
 }
@@ -266,20 +266,21 @@ export const useGameStore = create<GameState>((set, get) => ({
       
       // FIRST: Resolve any existing pendingRound IF it's for THIS epoch
       // pendingRound.roundNumber is the epoch the bet is FOR
+      const userBet = pendingRound?.userBet
       const shouldResolve = pendingRound && 
-        pendingRound.userBet && 
+        userBet && 
         pendingRound.roundNumber === epochEnd.epoch && 
         epochEnd.outcome
       
-      if (shouldResolve) {
+      if (shouldResolve && userBet) {
         stateUpdate.lastOutcome = epochEnd.outcome
         stateUpdate.showResult = true
-        stateUpdate.lastBetAmount = pendingRound.userBet.amount
+        stateUpdate.lastBetAmount = userBet.amount
         
-        if (pendingRound.userBet.direction === epochEnd.outcome) {
+        if (userBet.direction === epochEnd.outcome) {
           // Fixed spread payout: stake * (2 - spread)
-          const spread = pendingRound.userBet.spread || 0.025
-          const payout = pendingRound.userBet.amount * (2 - spread)
+          const spread = userBet.spread || 0.025
+          const payout = userBet.amount * (2 - spread)
           stateUpdate.lastPayout = payout
         } else {
           stateUpdate.lastPayout = 0
