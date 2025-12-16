@@ -138,7 +138,14 @@ export const useGameStore = create<GameState>((set, get) => ({
         const totalPool = pendingRound.pools.up + pendingRound.pools.down
         const winningPool = pendingRound.pools[result.outcome!]
         const rake = 0.05
-        lastPayout = (pendingRound.userBet.amount / winningPool) * totalPool * (1 - rake)
+        // Prevent division by zero - if winningPool is 0, return the bet amount
+        if (winningPool > 0 && totalPool > 0) {
+          const calculated = (pendingRound.userBet.amount / winningPool) * totalPool * (1 - rake)
+          // Extra safety: ensure result is a valid finite number
+          lastPayout = isFinite(calculated) && !isNaN(calculated) ? calculated : pendingRound.userBet.amount
+        } else {
+          lastPayout = pendingRound.userBet.amount // Return original bet if pool is empty
+        }
       } else {
         lastPayout = 0
       }

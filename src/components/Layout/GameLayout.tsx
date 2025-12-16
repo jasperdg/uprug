@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { BalanceDisplay } from '../Balance/BalanceDisplay'
-import { WinEffect } from '../Feedback/WinEffect'
+// import { WinEffect } from '../Feedback/WinEffect'
 import { ResultToast } from '../Feedback/ResultToast'
 import { ConnectionStatus } from '../Feedback/ConnectionStatus'
 import { usePriceStore } from '../../stores/priceStore'
@@ -45,11 +45,10 @@ export function GameLayout({ children }: GameLayoutProps) {
         {children}
       </main>
       
-      {/* Effects overlays */}
-      <WinEffect />
+      {/* Effects overlays - WinEffect disabled for debugging */}
+      {/* <WinEffect /> */}
       <ResultToast />
       <ConnectionStatus />
     </div>
   )
 }
-

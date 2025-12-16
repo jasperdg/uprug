@@ -1,9 +1,7 @@
 import { useEffect } from 'react'
 import { GameLayout } from './components/Layout/GameLayout'
 import { PriceChart } from './components/PriceChart/PriceChart'
-import { CountdownTimer } from './components/Timer/CountdownTimer'
-import { PoolDisplay } from './components/PoolDisplay/PoolDisplay'
-import { BettingPanel } from './components/BettingPanel/BettingPanel'
+import { EpochPositionCards } from './components/EpochCards/EpochPositionCards'
 import { useBinanceWebSocket } from './hooks/useBinanceWebSocket'
 import { useGameLoop } from './hooks/useGameLoop'
 import { useSoundEffects } from './hooks/useSoundEffects'
@@ -36,20 +34,14 @@ function App() {
   
   return (
     <GameLayout>
-      {/* Price Chart - 50% of available space */}
+      {/* Price Chart - takes available space */}
       <div className="flex-1 min-h-0">
         <PriceChart />
       </div>
       
-      {/* Timer */}
-      <CountdownTimer />
-      
-      {/* Pool Display */}
-      <PoolDisplay />
-      
-      {/* Betting Panel - takes remaining space */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        <BettingPanel />
+      {/* Epoch Position Cards */}
+      <div className="flex-shrink-0 overflow-y-auto max-h-[55vh]">
+        <EpochPositionCards />
       </div>
     </GameLayout>
   )

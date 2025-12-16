@@ -17,7 +17,11 @@ export function formatPrice(price: number): string {
 /**
  * Format currency (USDC)
  */
-export function formatCurrency(amount: number): string {
+export function formatCurrency(amount: number | null | undefined): string {
+  // Handle null, undefined, NaN, or Infinity
+  if (amount === null || amount === undefined || !isFinite(amount) || isNaN(amount)) {
+    return '$0.00'
+  }
   return `$${amount.toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
