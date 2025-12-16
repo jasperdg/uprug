@@ -31,7 +31,6 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   xDomain,
   isUp,
   referencePrice,
-  resolvedMarker,
   epochLines,
   epochZones,
 }: {
@@ -41,14 +40,9 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
   xDomain: [number, number]
   isUp: boolean
   referencePrice: number | null
-  resolvedMarker: { referencePrice: number; referenceIndex: number; outcome: string } | null
   epochLines: EpochLine[]
   epochZones: EpochZone[]
 }) {
-  const markerColor = resolvedMarker?.outcome === 'up' 
-    ? 'var(--accent-up)' 
-    : 'var(--accent-down)'
-
   const lastDataPoint = chartData[chartData.length - 1]
 
   return (
@@ -106,17 +100,6 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           />
         )}
         
-        {/* Resolved marker horizontal line */}
-        {resolvedMarker && (
-          <ReferenceLine
-            y={resolvedMarker.referencePrice}
-            stroke={markerColor}
-            strokeDasharray="4 4"
-            strokeOpacity={0.4}
-            strokeWidth={1}
-          />
-        )}
-        
         <Line
           type="monotone"
           dataKey="price"
@@ -147,7 +130,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
 
 export function PriceChart() {
   const { priceHistory, currentPrice, previousPrice } = usePriceStore()
-  const { referencePrice, resolvedMarker, epochTimestamps } = useGameStore()
+  const { referencePrice, epochTimestamps } = useGameStore()
   
   const percentChange = useMemo(() => {
     if (referencePrice) {
@@ -289,7 +272,6 @@ export function PriceChart() {
           xDomain={xDomain}
           isUp={isUp}
           referencePrice={referencePrice}
-          resolvedMarker={resolvedMarker}
           epochLines={epochLines}
           epochZones={epochZones}
         />

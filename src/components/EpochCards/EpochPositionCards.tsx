@@ -162,13 +162,20 @@ export function EpochPositionCards() {
               : '0 0 0px transparent'
         }}
         transition={{ duration: 0.3 }}
+        style={{
+          background: explosionState === 'win' 
+            ? 'rgba(0, 210, 106, 0.15)'
+            : explosionState === 'loss'
+              ? 'rgba(255, 68, 68, 0.15)'
+              : 'linear-gradient(135deg, rgba(255, 160, 60, 0.08) 0%, rgba(255, 120, 40, 0.04) 100%)'
+        }}
         className={`
           relative rounded-xl p-4 overflow-hidden
           ${explosionState === 'win' 
-            ? 'bg-accent-up/20 border-2 border-accent-up' 
+            ? 'border-2 border-accent-up' 
             : explosionState === 'loss'
-              ? 'bg-accent-down/20 border-2 border-accent-down'
-              : 'bg-bg-secondary border border-border'
+              ? 'border-2 border-accent-down'
+              : 'border border-amber-500/20'
           }
         `}
       >
@@ -289,7 +296,10 @@ export function EpochPositionCards() {
       {/* Next Epoch Card - Betting */}
       <motion.div
         layout
-        className="rounded-xl p-4 bg-bg-secondary border border-border"
+        style={{
+          background: 'linear-gradient(135deg, rgba(120, 60, 180, 0.12) 0%, rgba(90, 40, 150, 0.06) 100%)'
+        }}
+        className="rounded-xl p-4 border border-purple-500/20"
       >
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
