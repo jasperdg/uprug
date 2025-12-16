@@ -143,29 +143,26 @@ export function PriceChart() {
   
   // Transform price history to use timestamps as x-axis
   const { chartData, epochLines, epochZones, xDomain } = useMemo(() => {
-    const data: Array<{ timestamp: number; price: number }> = []
-    
-    // Add actual price data with timestamps
-    priceHistory.forEach((point) => {
-      data.push({
-        timestamp: point.timestamp,
-        price: point.price,
-      })
-    })
-    
     const now = Date.now()
-    const lastTimestamp = data.length > 0 ? data[data.length - 1].timestamp : now
-    const firstTimestamp = data.length > 0 ? data[0].timestamp : now
+    const lastTimestamp = priceHistory.length > 0 ? priceHistory[priceHistory.length - 1].timestamp : now
     
-    // Calculate domain: data fills left side, future space on right
-    // Show all available history on left, and equal future space on right
-    const dataSpan = lastTimestamp - firstTimestamp
-    const futureSpace = Math.max(dataSpan, 20000) // At least 20 seconds of future, or match data span
-    
-    // Domain starts from first data point (fills left), extends into future (right)
-    const domainStart = firstTimestamp
-    const domainEnd = lastTimestamp + futureSpace
+    // Fixed time window: 20 seconds past, 20 seconds future
+    const PAST_WINDOW = 20000
+    const FUTURE_WINDOW = 20000
+    const domainStart = lastTimestamp - PAST_WINDOW
+    const domainEnd = lastTimestamp + FUTURE_WINDOW
     const domain: [number, number] = [domainStart, domainEnd]
+    
+    // Only include data points within the visible window
+    const data: Array<{ timestamp: number; price: number }> = []
+    for (const point of priceHistory) {
+      if (point.timestamp >= domainStart) {
+        data.push({
+          timestamp: point.timestamp,
+          price: point.price,
+        })
+      }
+    }
     
     // Convert epoch timestamps to epoch lines
     const lines: EpochLine[] = epochTimestamps

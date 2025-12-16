@@ -13,23 +13,26 @@ import { usePriceStore } from '../stores/priceStore'
 export function useGameLoop() {
   const lastEpochRef = useRef<number>(0)
   
-  const {
-    currentRound,
-    referencePrice,
-    timeRemaining,
-    roundPhase,
-    epochHistory,
-    showResult,
-    lastOutcome,
-    lastPayout,
-    clearResult,
-    simulateOtherBets,
-    setPendingRound,
-    currentPools,
-  } = useGameStore()
+  // Use selectors to minimize re-renders
+  const currentRound = useGameStore((s) => s.currentRound)
+  const referencePrice = useGameStore((s) => s.referencePrice)
+  const timeRemaining = useGameStore((s) => s.timeRemaining)
+  const roundPhase = useGameStore((s) => s.roundPhase)
+  const epochHistory = useGameStore((s) => s.epochHistory)
+  const showResult = useGameStore((s) => s.showResult)
+  const lastOutcome = useGameStore((s) => s.lastOutcome)
+  const lastPayout = useGameStore((s) => s.lastPayout)
+  const clearResult = useGameStore((s) => s.clearResult)
+  const simulateOtherBets = useGameStore((s) => s.simulateOtherBets)
+  const setPendingRound = useGameStore((s) => s.setPendingRound)
+  const currentPools = useGameStore((s) => s.currentPools)
   
-  const { currentBet, clearCurrentBet, adjustBalance, addBetRecord } = useUserStore()
-  const { currentPrice } = usePriceStore()
+  const currentBet = useUserStore((s) => s.currentBet)
+  const clearCurrentBet = useUserStore((s) => s.clearCurrentBet)
+  const adjustBalance = useUserStore((s) => s.adjustBalance)
+  const addBetRecord = useUserStore((s) => s.addBetRecord)
+  
+  const currentPrice = usePriceStore((s) => s.currentPrice)
   
   // Watch for epoch changes
   useEffect(() => {

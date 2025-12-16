@@ -11,18 +11,21 @@ import confetti from 'canvas-confetti'
 const PRESET_AMOUNTS = [1, 5, 10, 25]
 
 export function EpochPositionCards() {
-  const {
-    currentRound,
-    timeRemaining,
-    roundPhase,
-    currentPools,
-    pendingRound,
-    showResult,
-    lastPayout,
-    addToPool,
-  } = useGameStore()
+  // Use selectors to minimize re-renders
+  const currentRound = useGameStore((s) => s.currentRound)
+  const timeRemaining = useGameStore((s) => s.timeRemaining)
+  const roundPhase = useGameStore((s) => s.roundPhase)
+  const currentPools = useGameStore((s) => s.currentPools)
+  const pendingRound = useGameStore((s) => s.pendingRound)
+  const showResult = useGameStore((s) => s.showResult)
+  const lastPayout = useGameStore((s) => s.lastPayout)
+  const addToPool = useGameStore((s) => s.addToPool)
   
-  const { currentBet, selectedStake, setSelectedStake, placeBet, balance } = useUserStore()
+  const currentBet = useUserStore((s) => s.currentBet)
+  const selectedStake = useUserStore((s) => s.selectedStake)
+  const setSelectedStake = useUserStore((s) => s.setSelectedStake)
+  const placeBet = useUserStore((s) => s.placeBet)
+  const balance = useUserStore((s) => s.balance)
   const { vibrateOnBet } = useHaptics()
   const { playWin, playLoss, playBet } = useSoundEffects()
   

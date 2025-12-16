@@ -14,11 +14,14 @@ function App() {
   // Initialize game loop
   useGameLoop()
   
-  // Preload sounds on first interaction
+  // Preload sounds on first interaction - use ref to avoid re-registering
   const { loadSounds } = useSoundEffects()
   
   useEffect(() => {
+    let mounted = true
+    
     const handleInteraction = () => {
+      if (!mounted) return
       loadSounds()
       document.removeEventListener('click', handleInteraction)
       document.removeEventListener('touchstart', handleInteraction)
@@ -28,10 +31,11 @@ function App() {
     document.addEventListener('touchstart', handleInteraction)
     
     return () => {
+      mounted = false
       document.removeEventListener('click', handleInteraction)
       document.removeEventListener('touchstart', handleInteraction)
     }
-  }, [loadSounds])
+  }, []) // Empty deps - loadSounds is stable via useCallback
   
   return (
     <GameLayout>

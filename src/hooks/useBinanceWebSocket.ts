@@ -18,7 +18,7 @@ function getWebSocketUrl(): string {
 
 const WS_URL = getWebSocketUrl()
 const RECONNECT_DELAY = 3000
-const FRAME_INTERVAL = 14 // ~70 FPS
+const FRAME_INTERVAL = 33 // ~30 FPS - smoother and more efficient
 const TIME_UPDATE_INTERVAL = 100 // Time updates at 10 FPS
 
 export function useBinanceWebSocket() {
@@ -47,7 +47,7 @@ export function useBinanceWebSocket() {
   const lastTimeUpdateRef = useRef<number>(0)
   const frameIntervalRef = useRef<number | null>(null)
   
-  const { addPricePoint, addExtrapolatedPoint, setConnected, initializeHistory, markLastPointAsEpochEnd } = usePriceStore()
+  const { addPricePoint, setConnected, initializeHistory, markLastPointAsEpochEnd } = usePriceStore()
   const { 
     setTimeRemaining, 
     setRound, 
@@ -104,10 +104,8 @@ export function useBinanceWebSocket() {
     if (pendingPriceRef.current) {
       addPricePoint(pendingPriceRef.current)
       pendingPriceRef.current = null
-    } else {
-      // No new data - extrapolate horizontal line at current price
-      addExtrapolatedPoint()
     }
+    // Note: Extrapolated points disabled - fixed time window handles gaps gracefully
     
     // Flush time update at lower frequency
     if (pendingTimeRef.current && now - lastTimeUpdateRef.current >= TIME_UPDATE_INTERVAL) {
@@ -118,7 +116,7 @@ export function useBinanceWebSocket() {
       lastTimeUpdateRef.current = now
       pendingTimeRef.current = null
     }
-  }, [addPricePoint, addExtrapolatedPoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, addEpochResult, setEpochTimestamps, setReferencePrice])
+  }, [addPricePoint, setTimeRemaining, setRound, markLastPointAsEpochEnd, addEpochResult, setEpochTimestamps, setReferencePrice])
   
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useUserStore } from '../../stores/userStore'
 import { formatCurrency } from '../../utils/formatters'
@@ -7,16 +7,18 @@ export function TradeHistory() {
   const [isExpanded, setIsExpanded] = useState(false)
   const betHistory = useUserStore((state) => state.betHistory)
   
-  const recentTrades = betHistory.slice(0, 20)
-  
-  // Calculate stats
-  const totalTrades = betHistory.length
-  const wins = betHistory.filter(b => b.payout && b.payout > 0).length
-  const losses = betHistory.filter(b => b.payout === 0).length
-  const totalPnL = betHistory.reduce((acc, b) => {
-    if (b.payout === null) return acc
-    return acc + (b.payout - b.amount)
-  }, 0)
+  // Memoize calculations to prevent recalculating on every render
+  const { recentTrades, totalTrades, wins, losses, totalPnL } = useMemo(() => {
+    const recent = betHistory.slice(0, 20)
+    const total = betHistory.length
+    const w = betHistory.filter(b => b.payout && b.payout > 0).length
+    const l = betHistory.filter(b => b.payout === 0).length
+    const pnl = betHistory.reduce((acc, b) => {
+      if (b.payout === null) return acc
+      return acc + (b.payout - b.amount)
+    }, 0)
+    return { recentTrades: recent, totalTrades: total, wins: w, losses: l, totalPnL: pnl }
+  }, [betHistory])
   
   return (
     <div className="border-t border-border bg-bg-secondary">

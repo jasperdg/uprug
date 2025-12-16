@@ -12,7 +12,8 @@ interface GameLayoutProps {
 
 export function GameLayout({ children }: GameLayoutProps) {
   const isConnected = usePriceStore((state) => state.isConnected)
-  const { soundEnabled, toggleSound } = useUserStore()
+  const soundEnabled = useUserStore((state) => state.soundEnabled)
+  const toggleSound = useUserStore((state) => state.toggleSound)
   
   return (
     <div className="h-full flex flex-col bg-bg-primary safe-top safe-bottom">
