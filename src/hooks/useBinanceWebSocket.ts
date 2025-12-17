@@ -19,7 +19,7 @@ function getWebSocketUrl(): string {
 
 const WS_URL = getWebSocketUrl()
 const RECONNECT_DELAY = 3000
-const FRAME_INTERVAL = 33 // ~30 FPS - smoother and more efficient
+const FRAME_INTERVAL = 16 // ~60 FPS - smooth animation
 const TIME_UPDATE_INTERVAL = 100 // Time updates at 10 FPS
 
 export function useBinanceWebSocket() {
@@ -78,7 +78,7 @@ export function useBinanceWebSocket() {
   currentBetRef.current = currentBet
   currentPoolsRef.current = currentPools
   
-  // Run at ~70fps - flush all pending updates in batched manner
+  // Run at ~60fps - flush all pending updates in batched manner
   const tick = useCallback(() => {
     const now = Date.now()
     
@@ -155,7 +155,7 @@ export function useBinanceWebSocket() {
       return
     }
     
-    // Start frame loop at ~70fps
+    // Start frame loop at ~60fps
     if (!frameIntervalRef.current) {
       frameIntervalRef.current = window.setInterval(tick, FRAME_INTERVAL)
     }

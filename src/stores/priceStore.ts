@@ -48,15 +48,45 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   addPricePoint: (point: PricePoint) => {
     const { priceHistory, currentPrice } = get()
     const now = Date.now()
+    const lastPoint = priceHistory[priceHistory.length - 1]
     
-    // Efficiently add point - mutate if under limit, otherwise slice
+    // Prepare points to add (may include interpolated points)
+    const pointsToAdd: PricePoint[] = []
+    
+    // Linear interpolation: if gap > 100ms, insert intermediate points for smoother transitions
+    if (lastPoint && !lastPoint.isEpochEnd && point.timestamp - lastPoint.timestamp > 100) {
+      const gap = point.timestamp - lastPoint.timestamp
+      const numInterpolations = Math.min(Math.floor(gap / 50), 3) // Max 3 interpolated points
+      
+      for (let i = 1; i <= numInterpolations; i++) {
+        const t = i / (numInterpolations + 1) // Interpolation factor (0 to 1)
+        const interpTimestamp = lastPoint.timestamp + gap * t
+        const interpPrice = lastPoint.price + (point.price - lastPoint.price) * t
+        
+        pointsToAdd.push({
+          price: interpPrice,
+          timestamp: interpTimestamp,
+          epoch: point.epoch,
+          isExtrapolated: true, // Mark as synthetic for debugging
+        })
+      }
+    }
+    
+    // Add the actual point
+    pointsToAdd.push(point)
+    
+    // Efficiently add all points
     let newHistory: PricePoint[]
-    if (priceHistory.length < MAX_HISTORY_POINTS) {
-      newHistory = [...priceHistory, point]
+    const totalNewPoints = pointsToAdd.length
+    const currentLength = priceHistory.length
+    
+    if (currentLength + totalNewPoints <= MAX_HISTORY_POINTS) {
+      newHistory = [...priceHistory, ...pointsToAdd]
     } else {
-      // Remove oldest, add newest - avoid spread + slice combo
-      newHistory = priceHistory.slice(1)
-      newHistory.push(point)
+      // Remove oldest points to make room
+      const removeCount = Math.max(totalNewPoints, currentLength + totalNewPoints - MAX_HISTORY_POINTS)
+      newHistory = priceHistory.slice(removeCount)
+      newHistory.push(...pointsToAdd)
     }
     
     set({

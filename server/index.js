@@ -29,6 +29,12 @@ const priceHistoryBuffer = new Array(MAX_PRICE_HISTORY);
 let priceHistoryHead = 0; // Points to oldest element
 let priceHistorySize = 0; // Current number of elements
 
+// Throttled price broadcast - queue prices and send at regular intervals
+const BROADCAST_INTERVAL = 33; // ~30 updates/sec max for smooth rendering
+const SIGNIFICANT_CHANGE_THRESHOLD = 0.0005; // 0.05% - broadcast immediately if exceeded
+let pendingPriceBroadcast = null;
+let lastBroadcastedPrice = null;
+
 // Ring buffer helper functions
 function addToPriceHistory(point) {
   const index = (priceHistoryHead + priceHistorySize) % MAX_PRICE_HISTORY;
@@ -329,14 +335,28 @@ function connectToPyth() {
             };
             addToPriceHistory(pricePoint);
             
-            // Broadcast price to all clients
-            broadcast({
+            // Queue price for throttled broadcast (will be sent by interval)
+            const priceData = {
               type: 'price',
               price,
               timestamp,
               epoch: currentEpoch,
               timeRemaining: getTimeRemaining()
-            });
+            };
+            
+            // Check for significant price change - broadcast immediately
+            if (lastBroadcastedPrice !== null) {
+              const changePercent = Math.abs(price - lastBroadcastedPrice) / lastBroadcastedPrice;
+              if (changePercent >= SIGNIFICANT_CHANGE_THRESHOLD) {
+                broadcast(priceData);
+                lastBroadcastedPrice = price;
+                pendingPriceBroadcast = null;
+                return;
+              }
+            }
+            
+            // Otherwise queue for next interval tick
+            pendingPriceBroadcast = priceData;
           }
         }
       }
@@ -391,6 +411,15 @@ server.listen(PORT, () => {
   console.log(`Health check: http://localhost:${PORT}/health`);
   connectToPyth();
 });
+
+// Throttled price broadcast interval - sends queued prices at ~30 updates/sec
+setInterval(() => {
+  if (pendingPriceBroadcast) {
+    broadcast(pendingPriceBroadcast);
+    lastBroadcastedPrice = pendingPriceBroadcast.price;
+    pendingPriceBroadcast = null;
+  }
+}, BROADCAST_INTERVAL);
 
 // Heartbeat
 setInterval(() => {
