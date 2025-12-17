@@ -20,7 +20,7 @@ interface EpochLine {
 interface EpochZone {
   start: number
   end: number
-  type: 'resolving' | 'betting' | 'future'
+  type: 'resolving' | 'betting' | 'future' | 'past'
   epochNumber?: number
 }
 
@@ -47,14 +47,20 @@ const ChartDot = memo(function ChartDot({
 }: DotProps & { lastTimestamp: number; isUp: boolean }) {
   if (!payload || !cx || !cy) return null
   if (payload.timestamp !== lastTimestamp) return null
+  
+  // Use the light color that matches the start of the line gradient
+  const lightColor = isUp ? '#b8ffd9' : '#ffc4ce'
+  
   return (
     <circle
       cx={cx}
       cy={cy}
-      r={4}
-      fill={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
-      stroke="var(--bg-primary)"
-      strokeWidth={2}
+      r={3.5}
+      fill={lightColor}
+      style={{
+        animation: 'dotPulse 1.5s ease-in-out infinite',
+        transformOrigin: `${cx}px ${cy}px`
+      }}
     />
   )
 })
@@ -159,10 +165,24 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
           />
         ))}
         
+        {/* Gradient definitions for line */}
+        <defs>
+          <linearGradient id="lineGradientUp" x1="100%" y1="0%" x2="0%" y2="0%">
+            <stop offset="0%" stopColor="#b8ffd9" stopOpacity={1} />
+            <stop offset="5%" stopColor="#00d26a" stopOpacity={1} />
+            <stop offset="100%" stopColor="#00d26a" stopOpacity={1} />
+          </linearGradient>
+          <linearGradient id="lineGradientDown" x1="100%" y1="0%" x2="0%" y2="0%">
+            <stop offset="0%" stopColor="#ffc4ce" stopOpacity={1} />
+            <stop offset="5%" stopColor="#ff3b5c" stopOpacity={1} />
+            <stop offset="100%" stopColor="#ff3b5c" stopOpacity={1} />
+          </linearGradient>
+        </defs>
+        
         <Line
           type="monotone"
           dataKey="price"
-          stroke={isUp ? 'var(--accent-up)' : 'var(--accent-down)'}
+          stroke={isUp ? 'url(#lineGradientUp)' : 'url(#lineGradientDown)'}
           strokeWidth={2}
           dot={renderDot}
           activeDot={false}
@@ -250,12 +270,18 @@ export function PriceChart() {
       if (zoneStart >= zoneEnd) continue
       
       // Determine zone type and epoch number based on current time
-      let zoneType: 'resolving' | 'betting' | 'future'
+      let zoneType: 'resolving' | 'betting' | 'future' | 'past'
       let epochNumber: number | undefined
       
       if (epochEnd <= lastTimestamp) {
-        // This epoch has already ended - it's in the past (no special highlight)
-        continue
+        // This epoch has already ended - keep the color for past epochs
+        zoneType = 'past'
+        // Calculate epoch number for past epochs
+        const resolvingEpochEnd = visibleTimestamps.find(ts => ts > lastTimestamp)
+        if (resolvingEpochEnd) {
+          const epochsBehind = Math.round((resolvingEpochEnd - epochEnd) / 10000)
+          epochNumber = resolvingEpochNumber - epochsBehind
+        }
       } else if (epochStart <= lastTimestamp && epochEnd > lastTimestamp) {
         // Current time is within this epoch - this is the resolving epoch
         zoneType = 'resolving'
@@ -345,6 +371,13 @@ export function PriceChart() {
             />
           </div>
         </div>
+        {/* Left fade gradient - fades out older data */}
+        <div 
+          className="absolute inset-y-0 left-0 w-[40%] pointer-events-none z-10"
+          style={{
+            background: 'linear-gradient(to right, var(--bg-primary) 0%, var(--bg-primary) 20%, transparent 100%)'
+          }}
+        />
       </div>
       
       {/* Connection indicator */}

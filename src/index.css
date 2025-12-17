@@ -93,11 +93,22 @@ html {
 @keyframes flash-green {
   0% { background-color: rgba(34, 197, 94, 0.3); }
   100% { background-color: transparent; }
+}
+
+@keyframes dotPulse {
+  0%, 100% { 
+    transform: scale(1);
+    opacity: 1;
   }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.85;
+  }
+}
 
 .animate-shake {
   animation: shake 0.3s ease-in-out;
-  }
+}
 
 .animate-flash-red {
   animation: flash-red 0.5s ease-out;
