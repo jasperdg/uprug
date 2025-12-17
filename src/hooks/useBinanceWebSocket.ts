@@ -54,7 +54,7 @@ export function useBinanceWebSocket() {
   const lastTimeUpdateRef = useRef<number>(0)
   const frameIntervalRef = useRef<number | null>(null)
   
-  const { addPricePoint, addExtrapolatedPoint, setConnected, initializeHistory, markLastPointAsEpochEnd, clearHistory } = usePriceStore()
+  const { addPricePoint, addExtrapolatedPoint, setConnected, initializeHistory, markLastPointAsEpochEnd, forceChartRemount } = usePriceStore()
   const { 
     setTimeRemaining, 
     setRound, 
@@ -309,13 +309,20 @@ export function useBinanceWebSocket() {
     setConnected(false)
   }, [setConnected])
   
-  // Clear stale price data when tab becomes visible again
+  // Force chart remount when tab becomes visible again
   // This prevents janky chart rendering from queued/stale WebSocket messages
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        clearHistory()
-        console.log('Tab visible - cleared stale price history')
+        // Clear pending refs to discard any stale data
+        pendingPriceRef.current = null
+        pendingTimeRef.current = null
+        pendingEpochEndRef.current = null
+        pendingEpochStartRef.current = null
+        
+        // Force complete chart remount by incrementing key and clearing history
+        forceChartRemount()
+        console.log('Tab visible - forcing chart remount')
       }
     }
     
@@ -323,7 +330,7 @@ export function useBinanceWebSocket() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [clearHistory])
+  }, [forceChartRemount])
   
   useEffect(() => {
     connect()

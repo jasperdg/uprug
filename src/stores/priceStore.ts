@@ -15,6 +15,7 @@ interface PriceState {
   isConnected: boolean
   lastUpdate: number
   lastRealUpdate: number // Track when we last got real data
+  chartKey: number // Incremented to force chart remount
   
   // Actions
   setPrice: (price: number) => void
@@ -24,6 +25,7 @@ interface PriceState {
   initializeHistory: (history: PricePoint[]) => void
   clearHistory: () => void
   markLastPointAsEpochEnd: () => void
+  forceChartRemount: () => void
 }
 
 const MAX_HISTORY_POINTS = 500 // Store more history for smooth chart
@@ -35,6 +37,7 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   isConnected: false,
   lastUpdate: 0,
   lastRealUpdate: 0,
+  chartKey: 0,
   
   setPrice: (price: number) => {
     const { currentPrice } = get()
@@ -160,6 +163,13 @@ export const usePriceStore = create<PriceState>((set, get) => ({
   
   clearHistory: () => {
     set({ priceHistory: [] })
+  },
+  
+  forceChartRemount: () => {
+    set((state) => ({ 
+      priceHistory: [],
+      chartKey: state.chartKey + 1 
+    }))
   },
   
   markLastPointAsEpochEnd: () => {

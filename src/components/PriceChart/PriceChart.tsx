@@ -194,7 +194,7 @@ const MemoizedLineChart = memo(function MemoizedLineChart({
 })
 
 export function PriceChart() {
-  const { priceHistory, currentPrice, previousPrice } = usePriceStore()
+  const { priceHistory, currentPrice, previousPrice, chartKey } = usePriceStore()
   const { referencePrice, epochTimestamps, currentRound } = useGameStore()
   
   const percentChange = useMemo(() => {
@@ -349,8 +349,8 @@ export function PriceChart() {
         </div>
       </div>
       
-      {/* Chart */}
-      <div className="flex-1 min-h-0 relative">
+      {/* Chart - key forces remount when tab becomes visible */}
+      <div className="flex-1 min-h-0 relative" key={chartKey}>
         <MemoizedLineChart
           chartData={chartData}
           minPrice={minPrice}
